@@ -65,6 +65,11 @@
     margin-top: 14px; background: var(--bg-raised); border: 1px solid var(--signal-dim);
     border-radius: var(--border-radius); padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
   }
+  .reminder-banner {
+    margin-top: 14px; background: var(--bg-raised); border: 1px solid #C0392B;
+    border-radius: var(--border-radius); padding: 12px 14px; font-size: 13px; color: var(--chalk);
+  }
+  .reminder-banner b { color: #E8604F; }
   .challenge-banner .cb-text { font-size: 13px; }
   .challenge-banner .cb-text b { color: var(--signal); font-family: 'Sora', sans-serif; font-weight: 800; font-size: 16px; display: block; }
   .challenge-banner button { background: var(--signal); color: #1B1A18; border: none; border-radius: var(--border-radius); padding: 8px 12px; font-weight: 700; font-size: 12px; cursor: pointer; white-space: nowrap; }
@@ -217,6 +222,7 @@
   }
   :root[data-theme="dark"] { --bg: #1B1A18; --bg-raised: #24221F; --concrete: #3A3733; --chalk: #F2EFE9; --chalk-dim: #B8B3A8; --signal: #E8B93A; --signal-dim: #7A6A2E; }
 </style>
+<script data-goatcounter="https://steady-app.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </head>
 <body>
 <div class="app">
@@ -232,6 +238,7 @@
       <div class="stat"><div class="num" id="stat-sessions">0</div><div class="label">séances</div></div>
       <div class="stat"><div class="num" id="stat-badges">0</div><div class="label">badges</div></div>
     </div>
+    <div class="reminder-banner" id="reminder-banner" style="display:none;"></div>
     <div class="challenge-banner" id="challenge-banner"></div>
   </header>
 
@@ -377,6 +384,9 @@ const BADGES = [
   { id: 'first', icon: '🔥', name: 'Premier pas', desc: '1ère séance', check: d => d.sessions.length >= 1 },
   { id: 'ten_sessions', icon: '📆', name: 'Régulier', desc: '10 séances', check: d => d.sessions.length >= 10 },
   { id: 'streak7', icon: '⚡', name: 'Semaine parfaite', desc: '7 jours de suite', check: d => computeStreak(d.sessions) >= 7 },
+  { id: 'streak14', icon: '🔥', name: 'Deux semaines', desc: '14 jours de suite', check: d => computeStreak(d.sessions) >= 14 },
+  { id: 'streak30', icon: '🌋', name: 'Un mois de feu', desc: '30 jours de suite', check: d => computeStreak(d.sessions) >= 30 },
+  { id: 'streak60', icon: '👑', name: 'Inarrêtable', desc: '60 jours de suite', check: d => computeStreak(d.sessions) >= 60 },
   { id: 'fl_hold10', icon: '🦅', name: 'Oiseau de fer', desc: '10 sec de front lever hold', check: d => d.sessions.some(s => maxSet(s.reps.fl_hold) >= 10) },
   { id: 'planche_hold10', icon: '🛹', name: 'Planche solide', desc: '10 sec de full planche hold', check: d => d.sessions.some(s => maxSet(s.reps.planche_hold) >= 10) },
   { id: 'oap_first', icon: '🦾', name: 'Un seul bras', desc: '1ère tenue en OAP hold', check: d => d.sessions.some(s => maxSet(s.reps.oap_hold) > 0) },
@@ -505,6 +515,19 @@ function renderStats() {
   document.getElementById('stat-streak').textContent = computeStreak(state.sessions);
   document.getElementById('stat-sessions').textContent = state.sessions.length;
   document.getElementById('stat-badges').textContent = BADGES.filter(b => b.check(state)).length;
+}
+
+function renderReminderBanner() {
+  const el = document.getElementById('reminder-banner');
+  if (!state.sessions.length) { el.style.display = 'none'; return; }
+  const lastDate = [...new Set(state.sessions.map(s => s.date))].sort().reverse()[0];
+  const gap = daysBetween(lastDate, todayStr());
+  if (gap >= 2) {
+    el.style.display = 'block';
+    el.innerHTML = `<b>⏰ Ça fait ${gap} jours...</b>Reprends ta séance avant de perdre ton élan !`;
+  } else {
+    el.style.display = 'none';
+  }
 }
 
 function renderChallengeBanner() {
@@ -844,6 +867,7 @@ function renderBadges() {
 
 function renderAll() {
   renderStats();
+  renderReminderBanner();
   renderChallengeBanner();
   renderHistory();
   renderProgression();
