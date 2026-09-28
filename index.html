@@ -221,6 +221,44 @@
     :root:not([data-theme="dark"]) { --bg: #EFEBE2; --bg-raised: #FBF9F4; --concrete: #D8D2C4; --chalk: #211F1C; --chalk-dim: #6E6858; --signal: #B8860B; --signal-dim: #D8C48A; }
   }
   :root[data-theme="dark"] { --bg: #1B1A18; --bg-raised: #24221F; --concrete: #3A3733; --chalk: #F2EFE9; --chalk-dim: #B8B3A8; --signal: #E8B93A; --signal-dim: #7A6A2E; }
+
+  /* --- flamme streak --- */
+  .flame { display: inline-block; margin-left: 6px; vertical-align: middle; line-height: 1; transform-origin: 50% 90%; }
+  .flame.lvl-0 { font-size: 14px; filter: grayscale(1); opacity: 0.35; }
+  .flame.lvl-1 { font-size: 16px; }
+  .flame.lvl-2 { font-size: 20px; animation: flicker 1.6s ease-in-out infinite; }
+  .flame.lvl-3 { font-size: 24px; animation: flicker 1.4s ease-in-out infinite; filter: saturate(1.4) drop-shadow(0 0 4px rgba(255,140,0,0.6)); }
+  .flame.lvl-4 { font-size: 28px; animation: flicker 1.2s ease-in-out infinite; filter: hue-rotate(30deg) saturate(1.6) drop-shadow(0 0 6px rgba(255,200,0,0.7)); }
+  .flame.lvl-5 { font-size: 31px; animation: flicker 1.1s ease-in-out infinite; filter: hue-rotate(190deg) saturate(1.5) drop-shadow(0 0 7px rgba(79,193,240,0.8)); }
+  .flame.lvl-6 { font-size: 34px; animation: flicker 1s ease-in-out infinite; filter: hue-rotate(250deg) saturate(1.6) drop-shadow(0 0 9px rgba(177,140,240,0.9)); }
+  @keyframes flicker { 0%, 100% { transform: scale(1) rotate(-2deg); } 50% { transform: scale(1.08) rotate(2deg); } }
+  @media (prefers-reduced-motion: reduce) { .flame { animation: none !important; } }
+
+  /* --- filtres historique --- */
+  .chips { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .chip { background: var(--bg-raised); border: 1px solid var(--concrete); color: var(--chalk-dim); border-radius: 999px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; }
+  .chip.active { color: #1B1A18; background: var(--signal); border-color: var(--signal); }
+  .chip[data-cat="pull"].active { background: var(--pull); border-color: var(--pull); }
+  .chip[data-cat="push"].active { background: var(--push); border-color: var(--push); }
+  .chip[data-cat="core"].active { background: var(--core); border-color: var(--core); }
+
+  /* --- historique des PR --- */
+  .pr-title { font-size: 12px; font-weight: 700; color: var(--signal); margin-top: 14px; }
+  .pr-table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
+  .pr-table th { color: var(--chalk-dim); font-weight: 600; text-align: left; padding: 4px 0; border-bottom: 1px solid var(--concrete); }
+  .pr-table td { padding: 6px 0; border-bottom: 1px solid rgba(58,55,51,0.5); }
+  .pr-table td:nth-child(2) { font-weight: 700; }
+  .pr-table td.delta { color: var(--ok); font-weight: 600; text-align: right; }
+
+  /* --- onboarding + mention légale --- */
+  .onb-list { margin: 12px 0 16px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .onb-list li { font-size: 14px; color: var(--chalk-dim); line-height: 1.4; }
+  .onb-list b { color: var(--chalk); }
+  .legal { text-align: center; font-size: 11px; color: var(--chalk-dim); opacity: 0.7; margin-top: 26px; }
+  /* --- élastique --- */
+  .band-btn { background: var(--bg); border: 1px solid var(--concrete); border-radius: var(--border-radius-sm); min-width: 34px; height: 34px; font-size: 13px; cursor: pointer; opacity: 0.45; padding: 0 6px; color: var(--chalk); white-space: nowrap; }
+  .band-btn.on { opacity: 1; border-color: var(--signal); background: rgba(232,185,58,0.18); }
+  .set-chip.band { border-color: var(--signal-dim); }
 </style>
 <script data-goatcounter="https://steady-app.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </head>
@@ -234,7 +272,7 @@
     <h1 class="brand-title"><svg class="rune-logo" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><line x1="20" y1="6" x2="20" y2="34" stroke="var(--signal)" stroke-width="4" stroke-linecap="round"/><line x1="20" y1="6" x2="30" y2="18" stroke="var(--signal)" stroke-width="4" stroke-linecap="round"/><line x1="20" y1="34" x2="10" y2="22" stroke="var(--signal)" stroke-width="4" stroke-linecap="round"/></svg>Steady</h1>
     <input class="profile-input" id="profile-name" placeholder="Ton pseudo (pour la carte de partage)" maxlength="24">
     <div class="stat-row">
-      <div class="stat"><div class="num" id="stat-streak">0</div><div class="label">jours de suite</div></div>
+      <div class="stat"><div class="num"><span id="stat-streak">0</span><span class="flame lvl-0" id="streak-flame">🔥</span></div><div class="label">jours de suite</div></div>
       <div class="stat"><div class="num" id="stat-sessions">0</div><div class="label">séances</div></div>
       <div class="stat"><div class="num" id="stat-badges">0</div><div class="label">badges</div></div>
     </div>
@@ -263,6 +301,7 @@
   </section>
 
   <section class="panel" id="panel-history">
+    <div class="chips" id="history-filters"></div>
     <div id="history-list"></div>
   </section>
 
@@ -291,6 +330,7 @@
   <section class="panel" id="panel-badges">
     <div class="badge-grid" id="badge-grid"></div>
   </section>
+  <footer class="legal">Steady © Eihwas_sw</footer>
 </div>
 
 <div class="modal-overlay" id="share-modal">
@@ -320,6 +360,32 @@
     <div class="field-label">Note</div>
     <textarea class="note-input" id="session-edit-note"></textarea>
     <button class="btn-primary" id="save-session-edit">Enregistrer</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="band-modal">
+  <div class="modal-box">
+    <div class="modal-close"><button id="close-band">Fermer ✕</button></div>
+    <h3>Résistance de l'élastique</h3>
+    <div class="chips" id="band-chips"></div>
+    <div class="field-label">Autre résistance (kg)</div>
+    <input type="number" inputmode="decimal" min="1" class="edit-input" id="band-custom" placeholder="Ex : 20">
+    <button class="btn-primary" id="band-custom-ok">Valider</button>
+    <button class="btn-secondary" id="band-none">Sans élastique</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="onboarding-modal">
+  <div class="modal-box">
+    <h3>Bienvenue sur Steady 👋</h3>
+    <ul class="onb-list">
+      <li>💪 <b>Enregistre tes séances</b> série par série, figure par figure.</li>
+      <li>📈 <b>Suis ta progression</b> : courbes et historique de tes records.</li>
+      <li>🏅 <b>Débloque des badges</b> et fais grandir ta flamme en t'entraînant chaque jour.</li>
+    </ul>
+    <div class="field-label">Ton pseudo (pour la carte de partage)</div>
+    <input type="text" class="edit-input" id="onb-name" placeholder="Ton pseudo Insta" maxlength="24">
+    <button class="btn-primary" id="onb-start">C'est parti</button>
   </div>
 </div>
 
@@ -387,9 +453,9 @@ const BADGES = [
   { id: 'streak14', icon: '🔥', name: 'Deux semaines', desc: '14 jours de suite', check: d => computeStreak(d.sessions) >= 14 },
   { id: 'streak30', icon: '🌋', name: 'Un mois de feu', desc: '30 jours de suite', check: d => computeStreak(d.sessions) >= 30 },
   { id: 'streak60', icon: '👑', name: 'Inarrêtable', desc: '60 jours de suite', check: d => computeStreak(d.sessions) >= 60 },
-  { id: 'fl_hold10', icon: '🦅', name: 'Oiseau de fer', desc: '10 sec de front lever hold', check: d => d.sessions.some(s => maxSet(s.reps.fl_hold) >= 10) },
-  { id: 'planche_hold10', icon: '🛹', name: 'Planche solide', desc: '10 sec de full planche hold', check: d => d.sessions.some(s => maxSet(s.reps.planche_hold) >= 10) },
-  { id: 'oap_first', icon: '🦾', name: 'Un seul bras', desc: '1ère tenue en OAP hold', check: d => d.sessions.some(s => maxSet(s.reps.oap_hold) > 0) },
+  { id: 'fl_hold10', icon: '🦅', name: 'Oiseau de fer', desc: '10 sec de front lever hold', check: d => d.sessions.some(s => maxFree(s, 'fl_hold') >= 10) },
+  { id: 'planche_hold10', icon: '🛹', name: 'Planche solide', desc: '10 sec de full planche hold', check: d => d.sessions.some(s => maxFree(s, 'planche_hold') >= 10) },
+  { id: 'oap_first', icon: '🦾', name: 'Un seul bras', desc: '1ère tenue en OAP hold', check: d => d.sessions.some(s => maxFree(s, 'oap_hold') > 0) },
   { id: 'challenge_done', icon: '🏁', name: 'Défi relevé', desc: 'Un défi 30 jours terminé', check: d => (d.completedChallenges || 0) > 0 },
 ];
 
@@ -427,8 +493,53 @@ function maxSet(val) {
   return arr.length ? Math.max(...arr) : 0;
 }
 
+function bandsArray(s, exoId) {
+  const n = setsArray(s.reps[exoId]).length;
+  const b = (s.bands && s.bands[exoId]) || [];
+  return Array.from({ length: n }, (_, i) => b[i] || false);
+}
+// max hors séries assistées à l'élastique (seules ces séries comptent pour records/badges/progression)
+function bandTag(b) { return b === true ? '🎗️' : '🎗️' + b + 'kg'; }
+function maxFree(s, exoId) {
+  const arr = setsArray(s.reps[exoId]);
+  const b = bandsArray(s, exoId);
+  const free = arr.filter((_, i) => !b[i]);
+  return free.length ? Math.max(...free) : 0;
+}
+
+function maxAll(s, exoId) {
+  const arr = setsArray(s.reps[exoId]);
+  return arr.length ? Math.max(...arr) : 0;
+}
 function getPR(exoId) {
-  return state.sessions.reduce((max, s) => Math.max(max, maxSet(s.reps[exoId])), 0);
+  return state.sessions.reduce((max, s) => Math.max(max, maxAll(s, exoId)), 0);
+}
+
+// niveaux d'assistance : '0' = sans élastique (le plus dur), puis kg croissants (plus de kg = plus d'aide)
+let progLevel = {};
+function levelKey(b) { return b ? String(b) : '0'; }
+function levelLabel(k) { return k === '0' ? 'Sans élastique' : k === 'true' ? '🎗️ ?' : '🎗️ ' + k + 'kg'; }
+function levelSort(a, b) { const r = k => k === '0' ? -1 : k === 'true' ? 1e9 : parseFloat(k); return r(a) - r(b); }
+function maxAtLevel(s, exoId, key) {
+  const arr = setsArray(s.reps[exoId]);
+  const bd = bandsArray(s, exoId);
+  const v = arr.filter((x, i) => x > 0 && levelKey(bd[i]) === key);
+  return v.length ? Math.max(...v) : 0;
+}
+function levelsUsed(exoId) {
+  const set = new Set();
+  state.sessions.forEach(s => {
+    const arr = setsArray(s.reps[exoId]);
+    const bd = bandsArray(s, exoId);
+    arr.forEach((x, i) => { if (x > 0) set.add(levelKey(bd[i])); });
+  });
+  return [...set].sort(levelSort);
+}
+function defaultLevel(exoId) {
+  const list = state.sessions.filter(s => setsArray(s.reps[exoId]).length).sort((a, b) => b.date.localeCompare(a.date));
+  if (!list.length) return '0';
+  const bd = bandsArray(list[0], exoId);
+  return bd.map(levelKey).sort(levelSort)[0] || '0';
 }
 
 function activeProgramFocus() {
@@ -438,6 +549,9 @@ function activeProgramFocus() {
 
 let pendingSets = {};
 EXERCISES.forEach(e => pendingSets[e.id] = []);
+let pendingBands = {};
+EXERCISES.forEach(e => pendingBands[e.id] = []);
+let bandOn = {};
 
 let exoSearchQuery = '';
 
@@ -461,12 +575,13 @@ function renderExoList() {
         <div class="exo-name">
           <div class="top">${exo.name}<span class="exo-unit">${exo.unit}</span>${exo.bonus ? '<span class="bonus-tag">Bonus</span>' : ''}</div>
           ${pr > 0 ? `<span class="exo-pr">Record : ${pr} ${exo.unit}</span>` : ''}
-          ${pendingSets[exo.id].length ? `<div class="sets-chips" id="sets-${exo.id}">${pendingSets[exo.id].map((v, i) => `<span class="set-chip" data-exo="${exo.id}" data-idx="${i}">${v} ✕</span>`).join('')}</div>` : `<div class="sets-chips" id="sets-${exo.id}"></div>`}
+          ${pendingSets[exo.id].length ? `<div class="sets-chips" id="sets-${exo.id}">${pendingSets[exo.id].map((v, i) => `<span class="set-chip${pendingBands[exo.id][i] ? ' band' : ''}" data-exo="${exo.id}" data-idx="${i}">${pendingBands[exo.id][i] ? bandTag(pendingBands[exo.id][i]) + ' ' : ''}${v} ✕</span>`).join('')}</div>` : `<div class="sets-chips" id="sets-${exo.id}"></div>`}
         </div>
         <div class="exo-input-group">
           <button class="stepper-btn" data-exo="${exo.id}" data-delta="-1">−</button>
-          <div class="exo-val" id="val-${exo.id}">0</div>
+          <div class="exo-val" id="val-${exo.id}">${current[exo.id] || 0}</div>
           <button class="stepper-btn" data-exo="${exo.id}" data-delta="1">+</button>
+          <button class="band-btn${bandOn[exo.id] ? ' on' : ''}" data-exo="${exo.id}" title="Résistance de l'élastique">🎗️${bandOn[exo.id] ? bandOn[exo.id] + 'kg' : ''}</button>
           <button class="add-set-btn" data-exo="${exo.id}">✓</button>
         </div>`;
       wrap.appendChild(row);
@@ -484,10 +599,16 @@ function renderExoList() {
       updateSaveButton();
     });
   });
+  wrap.querySelectorAll('.band-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openBandModal(btn.dataset.exo);
+    });
+  });
   wrap.querySelectorAll('.add-set-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.exo;
       if (current[id] <= 0) return;
+      pendingBands[id].push(bandOn[id] || false);
       pendingSets[id].push(current[id]);
       current[id] = 0;
       renderExoList();
@@ -499,6 +620,7 @@ function renderExoList() {
       const id = chip.dataset.exo;
       const idx = parseInt(chip.dataset.idx, 10);
       pendingSets[id].splice(idx, 1);
+      pendingBands[id].splice(idx, 1);
       renderExoList();
       updateSaveButton();
     });
@@ -511,8 +633,86 @@ function updateSaveButton() {
   document.getElementById('save-session').disabled = !hasPending && !hasCurrent;
 }
 
+function renderFlame(n) {
+  const el = document.getElementById('streak-flame');
+  if (!el) return;
+  const lvl = n <= 0 ? 0 : n >= 60 ? 6 : n >= 30 ? 5 : n >= 14 ? 4 : n >= 7 ? 3 : n >= 3 ? 2 : 1;
+  el.className = 'flame lvl-' + lvl;
+}
+
+function fmtDate(d) { return d.slice(8, 10) + '/' + d.slice(5, 7) + '/' + d.slice(0, 4); }
+
+function prHistory(exoId, key) {
+  const rows = [];
+  let best = 0;
+  [...state.sessions].sort((a, b) => a.date.localeCompare(b.date)).forEach(s => {
+    const m = key === undefined ? maxAll(s, exoId) : maxAtLevel(s, exoId, key);
+    if (m > best) { rows.push({ date: s.date, value: m, prev: best }); best = m; }
+  });
+  return rows;
+}
+
+function prTableHTML(exo, key) {
+  const rows = prHistory(exo.id, key);
+  if (!rows.length) return '';
+  const body = rows.slice().reverse().map(r =>
+    `<tr><td>${fmtDate(r.date)}</td><td>${r.value} ${exo.unit}</td><td class="delta">${r.prev ? '+' + (Math.round((r.value - r.prev) * 100) / 100) : '1er record'}</td></tr>`
+  ).join('');
+  return `<div class="pr-title">🏆 Historique des records</div><table class="pr-table"><thead><tr><th>Date</th><th>Record</th><th></th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+let historyCat = 'all';
+function renderHistoryFilters() {
+  const el = document.getElementById('history-filters');
+  const cats = [['all', 'Tout'], ['pull', 'Pull'], ['push', 'Push'], ['core', 'Core']];
+  el.innerHTML = cats.map(([k, l]) => `<button class="chip${historyCat === k ? ' active' : ''}" data-cat="${k}">${l}</button>`).join('');
+  el.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => { historyCat = b.dataset.cat; renderHistory(); }));
+}
+
+function maybeShowOnboarding() {
+  if (state.onboarded) return;
+  if (state.sessions.length) { state.onboarded = true; saveState(); return; }
+  document.getElementById('onboarding-modal').classList.add('show');
+}
+document.getElementById('onb-start').addEventListener('click', () => {
+  const name = document.getElementById('onb-name').value.trim();
+  if (name) state.profileName = name;
+  state.onboarded = true;
+  saveState();
+  document.getElementById('onboarding-modal').classList.remove('show');
+  renderAll();
+});
+
+let bandTargetExo = null;
+const BAND_PRESETS = [5, 15, 25, 35, 45];
+function openBandModal(id) {
+  bandTargetExo = id;
+  const el = document.getElementById('band-chips');
+  el.innerHTML = BAND_PRESETS.map(kg => `<button class="chip${bandOn[id] === kg ? ' active' : ''}" data-kg="${kg}">${kg} kg</button>`).join('');
+  el.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => setBand(parseFloat(b.dataset.kg))));
+  const isCustom = bandOn[id] && !BAND_PRESETS.includes(bandOn[id]);
+  document.getElementById('band-custom').value = isCustom ? bandOn[id] : '';
+  document.getElementById('band-modal').classList.add('show');
+}
+function setBand(kg) {
+  if (!bandTargetExo) return;
+  bandOn[bandTargetExo] = kg > 0 ? kg : 0;
+  document.getElementById('band-modal').classList.remove('show');
+  renderExoList();
+  if (kg > 0) showToast('🎗️ ' + kg + ' kg : suivi séparément dans Progression');
+}
+document.getElementById('close-band').addEventListener('click', () => document.getElementById('band-modal').classList.remove('show'));
+document.getElementById('band-none').addEventListener('click', () => setBand(0));
+document.getElementById('band-custom-ok').addEventListener('click', () => {
+  const kg = parseFloat(document.getElementById('band-custom').value.replace(',', '.'));
+  if (isNaN(kg) || kg <= 0) { showToast('Entre une résistance en kg (ex : 20)'); return; }
+  setBand(kg);
+});
+
 function renderStats() {
-  document.getElementById('stat-streak').textContent = computeStreak(state.sessions);
+  const streak = computeStreak(state.sessions);
+  document.getElementById('stat-streak').textContent = streak;
+  renderFlame(streak);
   document.getElementById('stat-sessions').textContent = state.sessions.length;
   document.getElementById('stat-badges').textContent = BADGES.filter(b => b.check(state)).length;
 }
@@ -562,19 +762,24 @@ function openChallengeModal() {
 }
 
 function renderHistory() {
+  renderHistoryFilters();
   const listEl = document.getElementById('history-list');
   if (!state.sessions.length) {
     listEl.innerHTML = '<div class="empty">Pas encore de séance enregistrée.<br>Lance-toi sur l\'onglet Séance.</div>';
     return;
   }
   listEl.innerHTML = '';
-  [...state.sessions].sort((a, b) => {
+  const shown = state.sessions.filter(s => historyCat === 'all' || EXERCISES.some(e => e.cat === historyCat && setsArray(s.reps[e.id]).length));
+  if (!shown.length) { listEl.innerHTML = '<div class="empty">Aucune séance dans cette catégorie.</div>'; return; }
+  [...shown].sort((a, b) => {
     if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
     return b.date.localeCompare(a.date);
   }).forEach(s => {
-    const lines = EXERCISES.filter(e => setsArray(s.reps[e.id]).length).map(e => {
+    const lines = EXERCISES.filter(e => (historyCat === 'all' || e.cat === historyCat) && setsArray(s.reps[e.id]).length).map(e => {
       const arr = setsArray(s.reps[e.id]);
-      const detail = arr.length > 1 ? `${arr.join(' · ')} ${e.unit} <span class="set-max">(max ${Math.max(...arr)})</span>` : `${arr[0]} ${e.unit}`;
+      const bd = bandsArray(s, e.id);
+      const labels = arr.map((v, i) => v + (bd[i] ? bandTag(bd[i]) : ''));
+      const detail = arr.length > 1 ? `${labels.join(' · ')} ${e.unit} <span class="set-max">(max ${Math.max(...arr)})</span>` : `${labels[0]} ${e.unit}`;
       return `<div class="exo-line"><span>${e.name}</span><span>${detail}</span></div>`;
     }).join('');
     const card = document.createElement('div');
@@ -669,9 +874,10 @@ function openSessionEditModal(date) {
   wrap.innerHTML = '';
   EXERCISES.filter(e => setsArray(s.reps[e.id]).length).forEach(e => {
     const arr = setsArray(s.reps[e.id]);
+    const bd = bandsArray(s, e.id);
     const row = document.createElement('div');
-    row.innerHTML = `<div class="field-label">${e.name} (${e.unit}, séries séparées par des virgules)</div>
-      <input type="text" class="edit-input" data-exo="${e.id}" value="${arr.join(', ')}">`;
+    row.innerHTML = `<div class="field-label">${e.name} (${e.unit}, séries séparées par des virgules, « e » + kg pour l'élastique : 8, 6e15, 5e25)</div>
+      <input type="text" class="edit-input" data-exo="${e.id}" value="${arr.map((v, i) => v + (bd[i] ? 'e' + (bd[i] === true ? '' : bd[i]) : '')).join(', ')}">`;
     wrap.appendChild(row);
   });
   document.getElementById('session-edit-note').value = s.note || '';
@@ -684,9 +890,15 @@ function saveSessionEdit() {
   if (!s) return;
   document.querySelectorAll('#session-edit-fields input').forEach(input => {
     const id = input.dataset.exo;
-    const vals = input.value.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v) && v > 0);
-    if (vals.length) s.reps[id] = vals;
-    else delete s.reps[id];
+    const toks = input.value.split(',').map(t => t.trim()).map(t => { const m = t.match(/^(\d+(?:[.,]\d+)?)\s*([eé*](?:\s*(\d+(?:[.,]\d+)?))?)?/i); if (!m) return { v: NaN, b: false }; return { v: parseFloat(m[1].replace(',', '.')), b: m[2] ? (m[3] ? parseFloat(m[3].replace(',', '.')) : true) : false }; }).filter(o => !isNaN(o.v) && o.v > 0);
+    if (toks.length) {
+      s.reps[id] = toks.map(o => o.v);
+      if (!s.bands) s.bands = {};
+      s.bands[id] = toks.map(o => o.b);
+    } else {
+      delete s.reps[id];
+      if (s.bands) delete s.bands[id];
+    }
   });
   s.note = document.getElementById('session-edit-note').value.trim() || undefined;
   saveState();
@@ -739,7 +951,7 @@ function renderProgression() {
   const wrap = document.getElementById('progression-list');
   wrap.innerHTML = '';
   const q = progressionSearchQuery.trim().toLowerCase();
-  const practiced = EXERCISES.filter(e => state.sessions.some(s => maxSet(s.reps[e.id]) > 0) && e.name.toLowerCase().includes(q));
+  const practiced = EXERCISES.filter(e => levelsUsed(e.id).length && e.name.toLowerCase().includes(q));
   if (!practiced.length) {
     wrap.innerHTML = q
       ? '<div class="empty">Aucune figure pratiquée ne correspond à ta recherche.</div>'
@@ -747,13 +959,22 @@ function renderProgression() {
     return;
   }
   practiced.forEach(exo => {
+    const levels = levelsUsed(exo.id);
+    let key = progLevel[exo.id];
+    if (!levels.includes(key)) key = defaultLevel(exo.id);
+    progLevel[exo.id] = key;
     const points = [...state.sessions]
-      .filter(s => maxSet(s.reps[exo.id]) > 0)
+      .filter(s => maxAtLevel(s, exo.id, key) > 0)
       .sort((a, b) => a.date.localeCompare(b.date))
-      .map(s => ({ date: s.date, value: maxSet(s.reps[exo.id]) }));
+      .map(s => ({ date: s.date, value: maxAtLevel(s, exo.id, key) }));
+    const tag = levels.length === 1 && key !== '0' ? ` <span class="exo-unit">${levelLabel(key)}</span>` : '';
+    const chips = levels.length > 1
+      ? `<div class="chips">${levels.map(k => `<button class="chip${k === key ? ' active' : ''}" data-lvl="${k}">${levelLabel(k)}</button>`).join('')}</div>`
+      : '';
     const block = document.createElement('div');
     block.className = 'card progression-block';
-    block.innerHTML = `<div class="chart-title">${exo.name} <span class="exo-unit">${exo.unit}</span></div>${buildLineChartSVG(points, exo.unit)}`;
+    block.innerHTML = `<div class="chart-title">${exo.name} <span class="exo-unit">${exo.unit}</span>${tag}</div>${chips}${buildLineChartSVG(points, exo.unit)}${prTableHTML(exo, key)}`;
+    block.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => { progLevel[exo.id] = b.dataset.lvl; renderProgression(); }));
     wrap.appendChild(block);
   });
 }
@@ -886,6 +1107,7 @@ function showToast(msg) {
 
 let lastLocalWriteAt = 0;
 async function saveState() {
+  try { localStorage.setItem('steady_state_v1', JSON.stringify(state)); } catch (e) {}
   if (dbRef) {
     lastLocalWriteAt = Date.now();
     try { await dbRef.doc('tracker/main').set(state); }
@@ -896,7 +1118,7 @@ async function saveState() {
 async function saveSession() {
  try {
   // toute valeur en cours de saisie mais pas encore "ajoutée" est comptée comme une série de plus
-  EXERCISES.forEach(e => { if (current[e.id] > 0) { pendingSets[e.id].push(current[e.id]); current[e.id] = 0; } });
+  EXERCISES.forEach(e => { if (current[e.id] > 0) { pendingBands[e.id].push(bandOn[e.id] || false); pendingSets[e.id].push(current[e.id]); current[e.id] = 0; } });
   const hasAny = Object.values(pendingSets).some(arr => arr.length > 0);
   if (!hasAny) { showToast('Ajoute au moins une série avant d\'enregistrer'); return; }
   const badgesBefore = BADGES.filter(b => b.check(state)).map(b => b.id);
@@ -906,18 +1128,24 @@ async function saveSession() {
   if (existingIdx >= 0) {
     EXERCISES.forEach(e => {
       if (pendingSets[e.id].length) {
-        const existingArr = setsArray(state.sessions[existingIdx].reps[e.id]);
-        state.sessions[existingIdx].reps[e.id] = existingArr.concat(pendingSets[e.id]);
+        const ses = state.sessions[existingIdx];
+        const existingBands = bandsArray(ses, e.id);
+        const existingArr = setsArray(ses.reps[e.id]);
+        ses.reps[e.id] = existingArr.concat(pendingSets[e.id]);
+        if (!ses.bands) ses.bands = {};
+        ses.bands[e.id] = existingBands.concat(pendingBands[e.id]);
       }
     });
-    if (note) state.sessions[existingIdx].note = note;
+    if (note) { const prevNote = state.sessions[existingIdx].note; state.sessions[existingIdx].note = prevNote ? prevNote + ' — ' + note : note; }
   } else {
     const reps = {};
     EXERCISES.forEach(e => { if (pendingSets[e.id].length) reps[e.id] = pendingSets[e.id].slice(); });
-    state.sessions.push({ date, reps, note: note || undefined });
+    const bands = {};
+    EXERCISES.forEach(e => { if (pendingSets[e.id].length && pendingBands[e.id].some(Boolean)) bands[e.id] = pendingBands[e.id].slice(); });
+    state.sessions.push({ date, reps, bands, note: note || undefined });
   }
   await saveState();
-  EXERCISES.forEach(e => { current[e.id] = 0; pendingSets[e.id] = []; });
+  EXERCISES.forEach(e => { current[e.id] = 0; pendingSets[e.id] = []; pendingBands[e.id] = []; bandOn[e.id] = false; });
   document.getElementById('session-note').value = '';
   renderExoList();
   updateSaveButton();
@@ -1069,6 +1297,15 @@ document.getElementById('profile-name').addEventListener('change', (e) => {
   saveState();
 });
 
+try {
+  const rawSaved = localStorage.getItem('steady_state_v1');
+  if (rawSaved) {
+    state = Object.assign(state, JSON.parse(rawSaved));
+    if (!Array.isArray(state.sessions)) state.sessions = [];
+    if (!state.goals) state.goals = {};
+  }
+} catch (e) {}
+
 renderExoList();
 renderAll();
 
@@ -1097,6 +1334,7 @@ renderAll();
   } catch (e) {
     console.error('db init failed', e);
   }
+  maybeShowOnboarding();
 })();
 </script>
 </body>
