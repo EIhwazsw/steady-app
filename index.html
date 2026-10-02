@@ -259,6 +259,10 @@
   .band-btn { background: var(--bg); border: 1px solid var(--concrete); border-radius: var(--border-radius-sm); min-width: 30px; height: 30px; font-size: 11px; cursor: pointer; opacity: 0.45; padding: 0 5px; color: var(--chalk); white-space: nowrap; flex-shrink: 0; }
   .band-btn.on { opacity: 1; border-color: var(--signal); background: rgba(232,185,58,0.18); }
   .set-chip.band { border-color: var(--signal-dim); }
+
+  /* --- sauvegarde --- */
+  .backup-row { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+  .backup-btn { background: none; border: 1px solid var(--concrete); color: var(--chalk-dim); border-radius: var(--border-radius-sm); padding: 7px 12px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; }
 </style>
 <script data-goatcounter="https://steady-app.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </head>
@@ -330,6 +334,11 @@
   <section class="panel" id="panel-badges">
     <div class="badge-grid" id="badge-grid"></div>
   </section>
+  <div class="backup-row">
+    <button class="backup-btn" id="export-data">💾 Exporter mes données</button>
+    <button class="backup-btn" id="import-data">📥 Importer</button>
+  </div>
+  <input type="file" accept="application/json" id="import-file" style="display:none;">
   <footer class="legal">Steady © Eihwas_sw</footer>
 </div>
 
@@ -1357,6 +1366,41 @@ document.getElementById('download-share').addEventListener('click', () => {
 document.getElementById('profile-name').addEventListener('change', (e) => {
   state.profileName = e.target.value.trim();
   saveState();
+});
+
+document.getElementById('export-data').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.download = `steady-sauvegarde-${todayStr()}.json`;
+  link.href = url;
+  link.click();
+  URL.revokeObjectURL(url);
+  showToast('💾 Sauvegarde téléchargée');
+});
+document.getElementById('import-data').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+});
+document.getElementById('import-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const incoming = JSON.parse(reader.result);
+      if (!incoming || !Array.isArray(incoming.sessions)) throw new Error('format invalide');
+      if (!confirm(`Importer ${incoming.sessions.length} séance(s) ? Ça remplacera toutes tes données actuelles dans cette appli.`)) return;
+      state = Object.assign({ sessions: [], goals: {}, challenge: null, activeProgram: null, profileName: '', completedChallenges: 0 }, incoming);
+      saveState();
+      renderExoList();
+      renderAll();
+      showToast('📥 Données importées');
+    } catch (err) {
+      showToast('⚠️ Fichier invalide : ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
 });
 
 try {
