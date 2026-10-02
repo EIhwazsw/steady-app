@@ -384,6 +384,7 @@
       <li>💪 <b>Enregistre tes séances</b> série par série, figure par figure.</li>
       <li>📈 <b>Suis ta progression</b> : courbes et historique de tes records.</li>
       <li>🏅 <b>Débloque des badges</b> et fais grandir ta flamme en t'entraînant chaque jour.</li>
+      <li>🎗️ <b>Tu t'aides d'un élastique ?</b> Tape sur le badge à côté d'une figure pour choisir sa résistance — ça compte à part dans ta progression.</li>
     </ul>
     <div class="field-label">Ton pseudo (pour la carte de partage)</div>
     <input type="text" class="edit-input" id="onb-name" placeholder="Ton pseudo Insta" maxlength="24">
@@ -455,9 +456,9 @@ const BADGES = [
   { id: 'streak14', icon: '🔥', name: 'Deux semaines', desc: '14 jours de suite', check: d => computeStreak(d.sessions) >= 14 },
   { id: 'streak30', icon: '🌋', name: 'Un mois de feu', desc: '30 jours de suite', check: d => computeStreak(d.sessions) >= 30 },
   { id: 'streak60', icon: '👑', name: 'Inarrêtable', desc: '60 jours de suite', check: d => computeStreak(d.sessions) >= 60 },
-  { id: 'fl_hold10', icon: '🦅', name: 'Oiseau de fer', desc: '10 sec de front lever hold', check: d => d.sessions.some(s => maxFree(s, 'fl_hold') >= 10) },
-  { id: 'planche_hold10', icon: '🛹', name: 'Planche solide', desc: '10 sec de full planche hold', check: d => d.sessions.some(s => maxFree(s, 'planche_hold') >= 10) },
-  { id: 'oap_first', icon: '🦾', name: 'Un seul bras', desc: '1ère tenue en OAP hold', check: d => d.sessions.some(s => maxFree(s, 'oap_hold') > 0) },
+  { id: 'fl_hold10', icon: '🦅', name: 'Oiseau de fer', desc: '10 sec de front lever hold, sans assistance', check: d => d.sessions.some(s => maxFree(s, 'fl_hold') >= 10) },
+  { id: 'planche_hold10', icon: '🛹', name: 'Planche solide', desc: '10 sec de full planche hold, sans assistance', check: d => d.sessions.some(s => maxFree(s, 'planche_hold') >= 10) },
+  { id: 'oap_first', icon: '🦾', name: 'Un seul bras', desc: '1ère tenue en OAP hold, sans assistance', check: d => d.sessions.some(s => maxFree(s, 'oap_hold') > 0) },
   { id: 'challenge_done', icon: '🏁', name: 'Défi relevé', desc: 'Un défi 30 jours terminé', check: d => (d.completedChallenges || 0) > 0 },
 ];
 
@@ -1203,10 +1204,18 @@ function switchTab(tab) {
   document.getElementById('panel-' + tab).classList.add('active');
 }
 
-function drawShareCard() {
+async function drawShareCard() {
   const canvas = document.getElementById('share-canvas');
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
+  // charge les polices de marque pour le canvas avant de dessiner (sinon fallback navigateur)
+  try {
+    await Promise.all([
+      document.fonts.load('20px Inter'), document.fonts.load('bold 18px Inter'),
+      document.fonts.load('800 42px Sora'), document.fonts.load('800 64px Sora'), document.fonts.load('800 22px Sora'),
+    ]);
+  } catch (e) {}
+
   ctx.fillStyle = '#1B1A18';
   ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = '#3A3733';
@@ -1214,16 +1223,16 @@ function drawShareCard() {
   ctx.strokeRect(20, 20, W - 40, H - 40);
 
   ctx.fillStyle = '#E8B93A';
-  ctx.font = '20px sans-serif';
+  ctx.font = '600 20px Inter, sans-serif';
   ctx.fillText((state.profileName || 'Ma progression').toUpperCase(), 50, 90);
 
   ctx.fillStyle = '#F2EFE9';
-  ctx.font = 'bold 42px sans-serif';
+  ctx.font = '800 42px Sora, sans-serif';
   ctx.fillText('CALISTHÉNIE', 50, 145);
 
   const streak = computeStreak(state.sessions);
   ctx.fillStyle = '#B8B3A8';
-  ctx.font = '16px sans-serif';
+  ctx.font = '16px Inter, sans-serif';
   ctx.fillText(`${streak} jours de suite · ${state.sessions.length} séances`, 50, 180);
 
   const chosenId = document.getElementById('share-exo-select').value;
@@ -1238,30 +1247,30 @@ function drawShareCard() {
 
   if (bestExo) {
     ctx.fillStyle = '#B8B3A8';
-    ctx.font = '16px sans-serif';
+    ctx.font = '600 16px Inter, sans-serif';
     ctx.fillText('RECORD ACTUEL', 50, 270);
     ctx.fillStyle = '#E8B93A';
-    ctx.font = 'bold 64px sans-serif';
+    ctx.font = '800 64px Sora, sans-serif';
     ctx.fillText(`${bestVal}`, 50, 350);
-    ctx.font = '20px sans-serif';
+    ctx.font = '20px Inter, sans-serif';
     ctx.fillText(bestExo.unit, 50 + ctx.measureText(String(bestVal)).width + 12, 350);
     ctx.fillStyle = '#F2EFE9';
-    ctx.font = '22px sans-serif';
+    ctx.font = '800 22px Sora, sans-serif';
     ctx.fillText(bestExo.name, 50, 390);
   } else {
     ctx.fillStyle = '#B8B3A8';
-    ctx.font = '18px sans-serif';
+    ctx.font = '18px Inter, sans-serif';
     ctx.fillText('Aucune séance enregistrée pour le moment', 50, 300);
   }
 
   const badgeCount = BADGES.filter(b => b.check(state)).length;
   ctx.fillStyle = '#B8B3A8';
-  ctx.font = '16px sans-serif';
+  ctx.font = '16px Inter, sans-serif';
   ctx.fillText(`${badgeCount} badges débloqués`, 50, H - 90);
 
   drawEihwazRune(ctx, 62, H - 44, 34, '#E8B93A');
   ctx.fillStyle = '#F2EFE9';
-  ctx.font = 'bold 18px sans-serif';
+  ctx.font = '800 18px Sora, sans-serif';
   ctx.fillText('@Eihwas_sw', 86, H - 39);
 }
 
