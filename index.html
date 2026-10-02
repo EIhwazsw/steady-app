@@ -103,7 +103,7 @@
   .cat-heading.cat-push { color: var(--push); border-left-color: var(--push); }
   .cat-heading.cat-core { color: var(--core); border-left-color: var(--core); }
   .cat-heading:first-child { margin-top: 0; }
-  .exo-input-group { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .exo-input-group { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
   .stepper-btn { width: 30px; height: 30px; border-radius: var(--border-radius-sm); border: 1px solid var(--concrete); background: var(--bg); color: var(--chalk); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.1s ease; }
   .stepper-btn:active { background: var(--concrete); transform: scale(0.92); }
   .exo-val { width: 30px; text-align: center; font-family: 'Sora', sans-serif; font-weight: 800; font-size: 16px; }
@@ -256,7 +256,7 @@
   .onb-list b { color: var(--chalk); }
   .legal { text-align: center; font-size: 11px; color: var(--chalk-dim); opacity: 0.7; margin-top: 26px; }
   /* --- élastique --- */
-  .band-btn { background: var(--bg); border: 1px solid var(--concrete); border-radius: var(--border-radius-sm); min-width: 34px; height: 34px; font-size: 13px; cursor: pointer; opacity: 0.45; padding: 0 6px; color: var(--chalk); white-space: nowrap; }
+  .band-btn { background: var(--bg); border: 1px solid var(--concrete); border-radius: var(--border-radius-sm); min-width: 30px; height: 30px; font-size: 11px; cursor: pointer; opacity: 0.45; padding: 0 5px; color: var(--chalk); white-space: nowrap; flex-shrink: 0; }
   .band-btn.on { opacity: 1; border-color: var(--signal); background: rgba(232,185,58,0.18); }
   .set-chip.band { border-color: var(--signal-dim); }
 </style>
@@ -337,6 +337,8 @@
   <div class="modal-box">
     <div class="modal-close"><button id="close-share">Fermer ✕</button></div>
     <h3>Ta carte de progression</h3>
+    <div class="field-label">Figure à mettre en avant</div>
+    <select class="challenge-select" id="share-exo-select"></select>
     <div class="share-canvas-wrap"><canvas id="share-canvas" width="600" height="600"></canvas></div>
     <button class="btn-primary" id="download-share">Télécharger l'image</button>
   </div>
@@ -464,20 +466,30 @@ let current = {};
 EXERCISES.forEach(e => current[e.id] = 0);
 let dbRef = null;
 
-function todayStr() { return new Date().toISOString().slice(0, 10); }
+function dateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+function todayStr() { return dateStr(new Date()); }
 
 function daysBetween(a, b) {
   return Math.round((new Date(b) - new Date(a)) / 86400000);
 }
 
+const STREAK_GRACE_MS = 35 * 3600 * 1000; // 35h pour enchaîner la séance suivante
+function sessionEffTs(s) {
+  // ts = moment réel d'enregistrement (nouvelles séances) ; à défaut, midi ce jour-là (anciennes séances)
+  return s.ts || new Date(s.date + 'T12:00:00').getTime();
+}
 function computeStreak(sessions) {
   if (!sessions.length) return 0;
-  const dates = [...new Set(sessions.map(s => s.date))].sort().reverse();
-  let streak = 0;
-  let cursor = new Date();
-  for (const d of dates) {
-    const cursorStr = cursor.toISOString().slice(0, 10);
-    if (d === cursorStr) { streak++; cursor.setDate(cursor.getDate() - 1); }
+  const sorted = [...new Map(sessions.map(s => [s.date, s])).values()].sort((a, b) => b.date.localeCompare(a.date));
+  if (Date.now() - sessionEffTs(sorted[0]) > STREAK_GRACE_MS) return 0;
+  let streak = 1;
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (sessionEffTs(sorted[i]) - sessionEffTs(sorted[i + 1]) <= STREAK_GRACE_MS) streak++;
     else break;
   }
   return streak;
@@ -513,6 +525,22 @@ function maxAll(s, exoId) {
 }
 function getPR(exoId) {
   return state.sessions.reduce((max, s) => Math.max(max, maxAll(s, exoId)), 0);
+}
+// renvoie le niveau (résistance) auquel le record global a été réalisé, ou null si atteint au moins une fois sans élastique
+function prLevel(exoId) {
+  const pr = getPR(exoId);
+  if (pr <= 0) return null;
+  let bandedLevel = null;
+  for (const s of state.sessions) {
+    const arr = setsArray(s.reps[exoId]);
+    const bd = bandsArray(s, exoId);
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i] !== pr) continue;
+      if (!bd[i]) return null; // ce chiffre a aussi été fait sans élastique -> record "propre"
+      if (bandedLevel === null) bandedLevel = bd[i];
+    }
+  }
+  return bandedLevel;
 }
 
 // niveaux d'assistance : '0' = sans élastique (le plus dur), puis kg croissants (plus de kg = plus d'aide)
@@ -574,14 +602,14 @@ function renderExoList() {
       row.innerHTML = `
         <div class="exo-name">
           <div class="top">${exo.name}<span class="exo-unit">${exo.unit}</span>${exo.bonus ? '<span class="bonus-tag">Bonus</span>' : ''}</div>
-          ${pr > 0 ? `<span class="exo-pr">Record : ${pr} ${exo.unit}</span>` : ''}
+          ${pr > 0 ? (() => { const lvl = prLevel(exo.id); return `<span class="exo-pr">Record : ${pr} ${exo.unit}${lvl ? ' <span class="exo-unit">(' + bandTag(lvl) + ')</span>' : ''}</span>`; })() : ''}
           ${pendingSets[exo.id].length ? `<div class="sets-chips" id="sets-${exo.id}">${pendingSets[exo.id].map((v, i) => `<span class="set-chip${pendingBands[exo.id][i] ? ' band' : ''}" data-exo="${exo.id}" data-idx="${i}">${pendingBands[exo.id][i] ? bandTag(pendingBands[exo.id][i]) + ' ' : ''}${v} ✕</span>`).join('')}</div>` : `<div class="sets-chips" id="sets-${exo.id}"></div>`}
         </div>
         <div class="exo-input-group">
           <button class="stepper-btn" data-exo="${exo.id}" data-delta="-1">−</button>
           <div class="exo-val" id="val-${exo.id}">${current[exo.id] || 0}</div>
           <button class="stepper-btn" data-exo="${exo.id}" data-delta="1">+</button>
-          <button class="band-btn${bandOn[exo.id] ? ' on' : ''}" data-exo="${exo.id}" title="Résistance de l'élastique">🎗️${bandOn[exo.id] ? bandOn[exo.id] + 'kg' : ''}</button>
+          <button class="band-btn${bandOn[exo.id] ? ' on' : ''}" data-exo="${exo.id}" title="Résistance de l'élastique">🎗️${bandOn[exo.id] ? bandOn[exo.id] : ''}</button>
           <button class="add-set-btn" data-exo="${exo.id}">✓</button>
         </div>`;
       wrap.appendChild(row);
@@ -720,11 +748,16 @@ function renderStats() {
 function renderReminderBanner() {
   const el = document.getElementById('reminder-banner');
   if (!state.sessions.length) { el.style.display = 'none'; return; }
-  const lastDate = [...new Set(state.sessions.map(s => s.date))].sort().reverse()[0];
-  const gap = daysBetween(lastDate, todayStr());
-  if (gap >= 2) {
+  const last = [...new Map(state.sessions.map(s => [s.date, s])).values()].sort((a, b) => b.date.localeCompare(a.date))[0];
+  const hoursSince = (Date.now() - sessionEffTs(last)) / 3600000;
+  if (hoursSince >= STREAK_GRACE_MS / 3600000) {
+    el.style.display = 'none'; // série déjà cassée, la flamme/le streak le montrent déjà
+    return;
+  }
+  if (hoursSince >= 20) {
+    const hoursLeft = Math.max(0, Math.round(STREAK_GRACE_MS / 3600000 - hoursSince));
     el.style.display = 'block';
-    el.innerHTML = `<b>⏰ Ça fait ${gap} jours...</b>Reprends ta séance avant de perdre ton élan !`;
+    el.innerHTML = `<b>⏰ Plus que ${hoursLeft}h...</b>Fais ta séance avant de perdre ta série !`;
   } else {
     el.style.display = 'none';
   }
@@ -1142,7 +1175,7 @@ async function saveSession() {
     EXERCISES.forEach(e => { if (pendingSets[e.id].length) reps[e.id] = pendingSets[e.id].slice(); });
     const bands = {};
     EXERCISES.forEach(e => { if (pendingSets[e.id].length && pendingBands[e.id].some(Boolean)) bands[e.id] = pendingBands[e.id].slice(); });
-    state.sessions.push({ date, reps, bands, note: note || undefined });
+    state.sessions.push({ date, reps, bands, note: note || undefined, ts: Date.now() });
   }
   await saveState();
   EXERCISES.forEach(e => { current[e.id] = 0; pendingSets[e.id] = []; pendingBands[e.id] = []; bandOn[e.id] = false; });
@@ -1193,8 +1226,9 @@ function drawShareCard() {
   ctx.font = '16px sans-serif';
   ctx.fillText(`${streak} jours de suite · ${state.sessions.length} séances`, 50, 180);
 
-  let bestExo = null, bestVal = 0;
-  EXERCISES.forEach(e => { const pr = getPR(e.id); if (pr > bestVal) { bestVal = pr; bestExo = e; } });
+  const chosenId = document.getElementById('share-exo-select').value;
+  const bestExo = EXERCISES.find(e => e.id === chosenId) || null;
+  const bestVal = bestExo ? getPR(bestExo.id) : 0;
 
   ctx.strokeStyle = '#3A3733';
   ctx.beginPath();
@@ -1247,7 +1281,26 @@ function drawEihwazRune(ctx, cx, cy, h, color) {
   ctx.stroke();
 }
 
+// figures avancées mises en avant par défaut sur la carte de partage (plutôt que le chiffre brut le plus haut)
+const SHARE_PRIORITY = ['oap_hold', 'maltese', 'planche_hold', 'straddle_planche', 'fl_hold', 'straddle_fl', 'planche_pushup', 'planche_press', 'l_sit', 'oah', 'hspu'];
+let shareExoId = null;
+function populateShareExoSelect() {
+  const sel = document.getElementById('share-exo-select');
+  const practiced = EXERCISES.filter(e => getPR(e.id) > 0);
+  if (!practiced.length) { sel.innerHTML = '<option value="">Aucune séance enregistrée</option>'; return; }
+  sel.innerHTML = practiced.map(e => `<option value="${e.id}">${e.name} (${getPR(e.id)} ${e.unit})</option>`).join('');
+  if (!shareExoId || !practiced.some(e => e.id === shareExoId)) {
+    const priority = SHARE_PRIORITY.find(id => practiced.some(e => e.id === id));
+    shareExoId = priority || practiced.reduce((best, e) => getPR(e.id) > getPR(best.id) ? e : best, practiced[0]).id;
+  }
+  sel.value = shareExoId;
+}
+document.getElementById('share-exo-select').addEventListener('change', (e) => {
+  shareExoId = e.target.value;
+  drawShareCard();
+});
 function openShareModal() {
+  populateShareExoSelect();
   drawShareCard();
   document.getElementById('share-modal').classList.add('show');
 }
