@@ -476,6 +476,9 @@ let current = {};
 EXERCISES.forEach(e => current[e.id] = 0);
 let dbRef = null;
 
+function normalize(str) {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
 function dateStr(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -597,9 +600,9 @@ function renderExoList() {
   const wrap = document.getElementById('exo-list');
   wrap.innerHTML = '';
   const focus = activeProgramFocus();
-  const q = exoSearchQuery.trim().toLowerCase();
+  const q = normalize(exoSearchQuery.trim());
   ['pull', 'push', 'core'].forEach(cat => {
-    const matches = EXERCISES.filter(e => e.cat === cat && e.name.toLowerCase().includes(q));
+    const matches = EXERCISES.filter(e => e.cat === cat && normalize(e.name).includes(q));
     if (!matches.length) return;
     const heading = document.createElement('div');
     heading.className = 'cat-heading cat-' + cat;
@@ -993,8 +996,8 @@ let progressionSearchQuery = '';
 function renderProgression() {
   const wrap = document.getElementById('progression-list');
   wrap.innerHTML = '';
-  const q = progressionSearchQuery.trim().toLowerCase();
-  const practiced = EXERCISES.filter(e => levelsUsed(e.id).length && e.name.toLowerCase().includes(q));
+  const q = normalize(progressionSearchQuery.trim());
+  const practiced = EXERCISES.filter(e => levelsUsed(e.id).length && normalize(e.name).includes(q));
   if (!practiced.length) {
     wrap.innerHTML = q
       ? '<div class="empty">Aucune figure pratiquée ne correspond à ta recherche.</div>'
@@ -1027,8 +1030,8 @@ let goalsSearchQuery = '';
 function renderGoals() {
   const wrap = document.getElementById('goals-list');
   wrap.innerHTML = '';
-  const q = goalsSearchQuery.trim().toLowerCase();
-  const visible = EXERCISES.filter(e => e.name.toLowerCase().includes(q));
+  const q = normalize(goalsSearchQuery.trim());
+  const visible = EXERCISES.filter(e => normalize(e.name).includes(q));
   if (!visible.length) {
     wrap.innerHTML = '<div class="empty">Aucune figure ne correspond à ta recherche.</div>';
     return;
