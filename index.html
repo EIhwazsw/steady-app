@@ -261,6 +261,8 @@
   .set-chip.band { border-color: var(--signal-dim); }
 
   /* --- sauvegarde --- */
+  .import-wrap { position: relative; overflow: hidden; display: inline-block; }
+  .import-wrap input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 100px; }
   .backup-row { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
   .backup-btn { background: none; border: 1px solid var(--concrete); color: var(--chalk-dim); border-radius: var(--border-radius-sm); padding: 7px 12px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; }
 </style>
@@ -336,9 +338,9 @@
   </section>
   <div class="backup-row">
     <button class="backup-btn" id="export-data">💾 Exporter mes données</button>
-    <button class="backup-btn" id="import-data">📥 Importer</button>
+    <span class="backup-btn import-wrap">📥 Importer<input type="file" id="import-file"></span>
   </div>
-  <input type="file" accept="application/json" id="import-file" style="display:none;">
+  
   <footer class="legal">Steady © Eihwas_sw</footer>
 </div>
 
@@ -398,6 +400,15 @@
     <div class="field-label">Ton pseudo (pour la carte de partage)</div>
     <input type="text" class="edit-input" id="onb-name" placeholder="Ton pseudo Insta" maxlength="24">
     <button class="btn-primary" id="onb-start">C'est parti</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="import-modal">
+  <div class="modal-box">
+    <h3>Importer la sauvegarde</h3>
+    <p class="field-label" id="import-msg"></p>
+    <button class="btn-primary" id="import-yes">Importer</button>
+    <button class="btn-secondary" id="import-no">Annuler</button>
   </div>
 </div>
 
@@ -475,6 +486,7 @@ let state = { sessions: [], goals: {}, challenge: null, activeProgram: null, pro
 let current = {};
 EXERCISES.forEach(e => current[e.id] = 0);
 let dbRef = null;
+let dbPath = null;
 
 function normalize(str) {
   return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -642,7 +654,7 @@ function renderExoList() {
   });
   wrap.querySelectorAll('.band-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      openBandModal(btn.dataset.exo);
+      openBandModal(btn.dataset.exo, 'log');
     });
   });
   wrap.querySelectorAll('.add-set-btn').forEach(btn => {
@@ -725,20 +737,34 @@ document.getElementById('onb-start').addEventListener('click', () => {
 });
 
 let bandTargetExo = null;
+let bandMode = 'log';
 const BAND_PRESETS = [5, 15, 25, 35, 45];
-function openBandModal(id) {
+function currentBand(id, mode) {
+  return mode === 'goal' ? ((state.goalBands || {})[id] || 0) : (bandOn[id] || 0);
+}
+function openBandModal(id, mode) {
   bandTargetExo = id;
+  bandMode = mode || 'log';
+  const cur = currentBand(id, bandMode);
   const el = document.getElementById('band-chips');
-  el.innerHTML = BAND_PRESETS.map(kg => `<button class="chip${bandOn[id] === kg ? ' active' : ''}" data-kg="${kg}">${kg} kg</button>`).join('');
+  el.innerHTML = BAND_PRESETS.map(kg => `<button class="chip${cur === kg ? ' active' : ''}" data-kg="${kg}">${kg} kg</button>`).join('');
   el.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => setBand(parseFloat(b.dataset.kg))));
-  const isCustom = bandOn[id] && !BAND_PRESETS.includes(bandOn[id]);
-  document.getElementById('band-custom').value = isCustom ? bandOn[id] : '';
+  const isCustom = cur && !BAND_PRESETS.includes(cur);
+  document.getElementById('band-custom').value = isCustom ? cur : '';
   document.getElementById('band-modal').classList.add('show');
 }
 function setBand(kg) {
   if (!bandTargetExo) return;
-  bandOn[bandTargetExo] = kg > 0 ? kg : 0;
   document.getElementById('band-modal').classList.remove('show');
+  if (bandMode === 'goal') {
+    if (!state.goalBands) state.goalBands = {};
+    if (kg > 0) state.goalBands[bandTargetExo] = kg; else delete state.goalBands[bandTargetExo];
+    saveState();
+    renderGoals();
+    showToast(kg > 0 ? '🎯 Objectif avec élastique ' + kg + ' kg' : '🎯 Objectif sans élastique');
+    return;
+  }
+  bandOn[bandTargetExo] = kg > 0 ? kg : 0;
   renderExoList();
   if (kg > 0) showToast('🎗️ ' + kg + ' kg : suivi séparément dans Progression');
 }
@@ -993,6 +1019,29 @@ function buildLineChartSVG(points, unit) {
 
 let progressionSearchQuery = '';
 
+// Score pondéré : ramène chaque série à un "équivalent sans élastique" (durée/reps × (1 - élastique/référence))
+const BAND_REF_KG = 50;
+function effScore(v, k) {
+  const kg = !k ? 0 : (k === true ? BAND_REF_KG / 2 : parseFloat(k));
+  return v * Math.max(0.05, 1 - kg / BAND_REF_KG);
+}
+function weightedChartHTML(exo, levels) {
+  if (!levels.some(k => k !== '0')) return '';
+  const points = [...state.sessions]
+    .filter(s => setsArray(s.reps[exo.id]).length)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map(s => {
+      const arr = setsArray(s.reps[exo.id]);
+      const bd = bandsArray(s, exo.id);
+      const best = Math.max(...arr.map((v, i) => effScore(v, bd[i])));
+      return { date: s.date, value: Math.round(best * 10) / 10 };
+    });
+  if (!points.length) return '';
+  return `<div class="pr-title">⚖️ Progression pondérée (élastique pris en compte)</div>
+    ${buildLineChartSVG(points, exo.unit)}
+    <div class="field-label">Équivalent sans élastique = ${exo.unit === 'sec' ? 'durée' : 'reps'} × (1 − élastique ÷ ${BAND_REF_KG} kg). Ex : 5 à 15 kg ≈ ${Math.round(effScore(5, 15) * 10) / 10}, 7 à 5 kg ≈ ${Math.round(effScore(7, 5) * 10) / 10}. La courbe monte quand tu tiens plus longtemps ou avec moins d'aide.</div>`;
+}
+
 function renderProgression() {
   const wrap = document.getElementById('progression-list');
   wrap.innerHTML = '';
@@ -1019,13 +1068,29 @@ function renderProgression() {
       : '';
     const block = document.createElement('div');
     block.className = 'card progression-block';
-    block.innerHTML = `<div class="chart-title">${exo.name} <span class="exo-unit">${exo.unit}</span>${tag}</div>${chips}${buildLineChartSVG(points, exo.unit)}${prTableHTML(exo, key)}`;
+    block.innerHTML = `<div class="chart-title">${exo.name} <span class="exo-unit">${exo.unit}</span>${tag}</div>${chips}${buildLineChartSVG(points, exo.unit)}${weightedChartHTML(exo, levels)}${prTableHTML(exo, key)}`;
     block.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => { progLevel[exo.id] = b.dataset.lvl; renderProgression(); }));
     wrap.appendChild(block);
   });
 }
 
 let goalsSearchQuery = '';
+
+// objectif avec élastique X kg : compte les séries faites avec X kg ou moins d'aide (sans élastique = le plus dur)
+function goalProgress(exoId) {
+  const limit = (state.goalBands || {})[exoId] || 0;
+  let best = 0;
+  state.sessions.forEach(s => {
+    const arr = setsArray(s.reps[exoId]);
+    const bd = bandsArray(s, exoId);
+    arr.forEach((v, i) => {
+      const k = bd[i];
+      const kg = !k ? 0 : (k === true ? Infinity : parseFloat(k));
+      if (kg <= limit && v > best) best = v;
+    });
+  });
+  return best;
+}
 
 function renderGoals() {
   const wrap = document.getElementById('goals-list');
@@ -1037,20 +1102,23 @@ function renderGoals() {
     return;
   }
   visible.forEach(exo => {
-    const pr = getPR(exo.id);
+    const pr = goalProgress(exo.id);
+    const gband = (state.goalBands || {})[exo.id] || 0;
     const goal = state.goals[exo.id] || null;
     const pct = goal ? Math.min(100, Math.round((pr / goal) * 100)) : 0;
     const row = document.createElement('div');
     row.className = 'goal-row';
     row.innerHTML = `
-      <div class="goal-top"><span class="gname">${exo.name}</span><span class="gvals">${pr}/${goal || '—'} ${exo.unit}</span></div>
+      <div class="goal-top"><span class="gname">${exo.name}${gband ? ' <span class="exo-unit">🎗️ ' + gband + ' kg</span>' : ''}</span><span class="gvals">${pr}/${goal || '—'} ${exo.unit}</span></div>
       ${goal ? `<div class="goal-bar-bg"><div class="goal-bar-fill" style="width:${pct}%"></div></div>` : ''}
       <div class="goal-input-row">
         <input type="number" min="0" placeholder="Objectif" value="${goal || ''}" data-exo="${exo.id}">
         <span>${exo.unit}</span>
+        <button class="band-btn${gband ? ' on' : ''}" data-exo="${exo.id}" title="Élastique pour cet objectif">🎗️${gband ? gband : ''}</button>
       </div>`;
     wrap.appendChild(row);
   });
+  wrap.querySelectorAll('.band-btn').forEach(btn => btn.addEventListener('click', () => openBandModal(btn.dataset.exo, 'goal')));
   wrap.querySelectorAll('input').forEach(input => {
     input.addEventListener('change', () => {
       const v = parseInt(input.value, 10);
@@ -1156,7 +1224,7 @@ async function saveState() {
   try { localStorage.setItem('steady_state_v1', JSON.stringify(state)); } catch (e) {}
   if (dbRef) {
     lastLocalWriteAt = Date.now();
-    try { await dbRef.doc('tracker/main').set(state); }
+    try { await dbRef.doc(dbPath).set(state); }
     catch (e) { console.error('db save failed', e); }
   }
 }
@@ -1381,29 +1449,41 @@ document.getElementById('export-data').addEventListener('click', () => {
   URL.revokeObjectURL(url);
   showToast('💾 Sauvegarde téléchargée');
 });
-document.getElementById('import-data').addEventListener('click', () => {
-  document.getElementById('import-file').click();
+let pendingImport = null;
+function proposeImport(text) {
+  try {
+    const incoming = JSON.parse(text);
+    if (!incoming || !Array.isArray(incoming.sessions)) throw new Error('format invalide');
+    pendingImport = incoming;
+    document.getElementById('import-msg').textContent = `Importer ${incoming.sessions.length} séance(s) ? Ça remplacera toutes tes données actuelles dans cette appli.`;
+    document.getElementById('import-modal').classList.add('show');
+  } catch (err) {
+    showToast('⚠️ Fichier invalide : ' + err.message);
+  }
+}
+document.getElementById('import-no').addEventListener('click', () => {
+  pendingImport = null;
+  document.getElementById('import-modal').classList.remove('show');
+});
+document.getElementById('import-yes').addEventListener('click', () => {
+  if (!pendingImport) return;
+  state = Object.assign({ sessions: [], goals: {}, challenge: null, activeProgram: null, profileName: '', completedChallenges: 0 }, pendingImport);
+  pendingImport = null;
+  document.getElementById('import-modal').classList.remove('show');
+  saveState();
+  renderExoList();
+  renderAll();
+  showToast('📥 Données importées');
 });
 document.getElementById('import-file').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  showToast('📄 Lecture de ' + file.name + '...');
   const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const incoming = JSON.parse(reader.result);
-      if (!incoming || !Array.isArray(incoming.sessions)) throw new Error('format invalide');
-      if (!confirm(`Importer ${incoming.sessions.length} séance(s) ? Ça remplacera toutes tes données actuelles dans cette appli.`)) return;
-      state = Object.assign({ sessions: [], goals: {}, challenge: null, activeProgram: null, profileName: '', completedChallenges: 0 }, incoming);
-      saveState();
-      renderExoList();
-      renderAll();
-      showToast('📥 Données importées');
-    } catch (err) {
-      showToast('⚠️ Fichier invalide : ' + err.message);
-    }
-  };
+  const input = e.target;
+  reader.onload = () => { proposeImport(reader.result); input.value = ''; };
+  reader.onerror = () => { showToast('⚠️ Impossible de lire le fichier'); input.value = ''; };
   reader.readAsText(file);
-  e.target.value = '';
 });
 
 try {
@@ -1421,7 +1501,10 @@ renderAll();
 (async function init() {
   try {
     if (window.claude && window.claude.use) {
-      dbRef = await window.claude.use('db');
+      const userCap = await window.claude.use('user');
+      const uid = userCap ? await userCap.id() : null;
+      dbRef = uid ? await window.claude.use('db') : null;
+      if (uid) dbPath = 'data/users/' + uid + '/tracker';
       if (dbRef) {
         const applyDoc = (doc) => {
           if (doc && doc.exists) {
@@ -1435,9 +1518,10 @@ renderAll();
             renderAll();
           }
         };
-        const doc = await dbRef.doc('tracker/main').get();
+        const doc = await dbRef.doc(dbPath).get();
+        if (!(doc && doc.exists) && state.sessions.length) saveState();
         applyDoc(doc);
-        dbRef.doc('tracker/main').onSnapshot(applyDoc);
+        dbRef.doc(dbPath).onSnapshot(applyDoc);
       }
     }
   } catch (e) {
