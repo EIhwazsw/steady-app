@@ -214,7 +214,7 @@
   .share-canvas-wrap canvas { max-width: 100%; border-radius: 6px; border: 1px solid var(--concrete); }
   select.challenge-select { width: 100%; background: var(--bg); border: 1px solid var(--concrete); color: var(--chalk); border-radius: var(--border-radius); padding: 10px; font-size: 14px; margin-bottom: 10px; }
 
-  .toast { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%) translateY(20px); background: var(--signal); color: #1B1A18; font-weight: 700; font-size: 14px; padding: 10px 18px; border-radius: var(--border-radius); opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease; pointer-events: none; max-width: 90%; text-align: center; z-index: 60; }
+  .toast { position: fixed; bottom: calc(90px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%) translateY(20px); background: var(--signal); color: #1B1A18; font-weight: 700; font-size: 14px; padding: 10px 18px; border-radius: var(--border-radius); opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease; pointer-events: none; max-width: 90%; text-align: center; z-index: 60; }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
   @media (prefers-color-scheme: light) {
@@ -260,6 +260,17 @@
   .band-btn.on { opacity: 1; border-color: var(--signal); background: rgba(232,185,58,0.18); }
   .set-chip.band { border-color: var(--signal-dim); }
 
+  /* --- barre d'enregistrement toujours visible --- */
+  .save-bar { position: sticky; bottom: 0; z-index: 20; margin: 0 -18px; padding: 24px 18px calc(10px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to bottom, transparent, var(--bg) 40%); pointer-events: none; }
+  .save-bar .btn-primary { pointer-events: auto; margin-top: 0; }
+
+  /* --- badform --- */
+  .bf-btn { background: var(--bg); border: 1px solid var(--concrete); border-radius: var(--border-radius-sm); height: 30px; font-size: 11px; cursor: pointer; opacity: 0.45; padding: 0 7px; color: var(--chalk); white-space: nowrap; flex-shrink: 0; }
+  .bf-btn.on { opacity: 1; border-color: #C0392B; background: rgba(192,57,43,0.18); }
+  .set-chip.bad { border-color: #C0392B; }
+  .bf-count { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--chalk-dim); margin-top: 4px; font-weight: 500; cursor: pointer; }
+  .bf-count input { width: 16px; height: 16px; accent-color: var(--signal); margin: 0; }
+
   /* --- sauvegarde --- */
   .import-wrap { position: relative; overflow: hidden; display: inline-block; }
   .import-wrap input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 100px; }
@@ -303,7 +314,7 @@
       <div class="field-label">Note de séance (technique, sensations...)</div>
       <textarea class="note-input" id="session-note" placeholder="Ex: jambe trop basse sur la 2e série de front lever"></textarea>
     </div>
-    <button class="btn-primary" id="save-session" disabled>Enregistrer la séance</button>
+    <div class="save-bar"><button class="btn-primary" id="save-session" disabled>Enregistrer la séance</button></div>
   </section>
 
   <section class="panel" id="panel-history">
@@ -487,6 +498,7 @@ let current = {};
 EXERCISES.forEach(e => current[e.id] = 0);
 let dbRef = null;
 let dbPath = null;
+let dbReady = false;
 
 function normalize(str) {
   return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -535,17 +547,27 @@ function bandsArray(s, exoId) {
   const b = (s.bands && s.bands[exoId]) || [];
   return Array.from({ length: n }, (_, i) => b[i] || false);
 }
+function formsArray(s, exoId) {
+  const n = setsArray(s.reps[exoId]).length;
+  const f = (s.forms && s.forms[exoId]) || [];
+  return Array.from({ length: n }, (_, i) => f[i] || 0);
+}
+// une série "badform non comptée" (1) est exclue des records, badges, courbes et objectifs
+function setCounted(s, exoId, i) {
+  const f = s.forms && s.forms[exoId];
+  return !(f && f[i] === 1);
+}
 // max hors séries assistées à l'élastique (seules ces séries comptent pour records/badges/progression)
 function bandTag(b) { return b === true ? '🎗️' : '🎗️' + b + 'kg'; }
 function maxFree(s, exoId) {
   const arr = setsArray(s.reps[exoId]);
   const b = bandsArray(s, exoId);
-  const free = arr.filter((_, i) => !b[i]);
+  const free = arr.filter((_, i) => !b[i] && setCounted(s, exoId, i));
   return free.length ? Math.max(...free) : 0;
 }
 
 function maxAll(s, exoId) {
-  const arr = setsArray(s.reps[exoId]);
+  const arr = setsArray(s.reps[exoId]).filter((_, i) => setCounted(s, exoId, i));
   return arr.length ? Math.max(...arr) : 0;
 }
 function getPR(exoId) {
@@ -560,7 +582,7 @@ function prLevel(exoId) {
     const arr = setsArray(s.reps[exoId]);
     const bd = bandsArray(s, exoId);
     for (let i = 0; i < arr.length; i++) {
-      if (arr[i] !== pr) continue;
+      if (arr[i] !== pr || !setCounted(s, exoId, i)) continue;
       if (!bd[i]) return null; // ce chiffre a aussi été fait sans élastique -> record "propre"
       if (bandedLevel === null) bandedLevel = bd[i];
     }
@@ -576,7 +598,7 @@ function levelSort(a, b) { const r = k => k === '0' ? -1 : k === 'true' ? 1e9 : 
 function maxAtLevel(s, exoId, key) {
   const arr = setsArray(s.reps[exoId]);
   const bd = bandsArray(s, exoId);
-  const v = arr.filter((x, i) => x > 0 && levelKey(bd[i]) === key);
+  const v = arr.filter((x, i) => x > 0 && levelKey(bd[i]) === key && setCounted(s, exoId, i));
   return v.length ? Math.max(...v) : 0;
 }
 function levelsUsed(exoId) {
@@ -584,7 +606,7 @@ function levelsUsed(exoId) {
   state.sessions.forEach(s => {
     const arr = setsArray(s.reps[exoId]);
     const bd = bandsArray(s, exoId);
-    arr.forEach((x, i) => { if (x > 0) set.add(levelKey(bd[i])); });
+    arr.forEach((x, i) => { if (x > 0 && setCounted(s, exoId, i)) set.add(levelKey(bd[i])); });
   });
   return [...set].sort(levelSort);
 }
@@ -605,6 +627,10 @@ EXERCISES.forEach(e => pendingSets[e.id] = []);
 let pendingBands = {};
 EXERCISES.forEach(e => pendingBands[e.id] = []);
 let bandOn = {};
+let pendingForms = {};
+EXERCISES.forEach(e => pendingForms[e.id] = []);
+let formOn = {};
+let formCount = {};
 
 let exoSearchQuery = '';
 
@@ -628,13 +654,15 @@ function renderExoList() {
         <div class="exo-name">
           <div class="top">${exo.name}<span class="exo-unit">${exo.unit}</span>${exo.bonus ? '<span class="bonus-tag">Bonus</span>' : ''}</div>
           ${pr > 0 ? (() => { const lvl = prLevel(exo.id); return `<span class="exo-pr">Record : ${pr} ${exo.unit}${lvl ? ' <span class="exo-unit">(' + bandTag(lvl) + ')</span>' : ''}</span>`; })() : ''}
-          ${pendingSets[exo.id].length ? `<div class="sets-chips" id="sets-${exo.id}">${pendingSets[exo.id].map((v, i) => `<span class="set-chip${pendingBands[exo.id][i] ? ' band' : ''}" data-exo="${exo.id}" data-idx="${i}">${pendingBands[exo.id][i] ? bandTag(pendingBands[exo.id][i]) + ' ' : ''}${v} ✕</span>`).join('')}</div>` : `<div class="sets-chips" id="sets-${exo.id}"></div>`}
+          ${pendingSets[exo.id].length ? `<div class="sets-chips" id="sets-${exo.id}">${pendingSets[exo.id].map((v, i) => `<span class="set-chip${pendingBands[exo.id][i] ? ' band' : ''}${pendingForms[exo.id][i] ? ' bad' : ''}" data-exo="${exo.id}" data-idx="${i}">${pendingBands[exo.id][i] ? bandTag(pendingBands[exo.id][i]) + ' ' : ''}${v}${pendingForms[exo.id][i] === 1 ? ' 🚫' : pendingForms[exo.id][i] === 2 ? ' ⚠️' : ''} ✕</span>`).join('')}</div>` : `<div class="sets-chips" id="sets-${exo.id}"></div>`}
+          ${formOn[exo.id] ? `<label class="bf-count"><input type="checkbox" class="bf-check" data-exo="${exo.id}"${formCount[exo.id] ? ' checked' : ''}> Compter dans les records</label>` : ''}
         </div>
         <div class="exo-input-group">
           <button class="stepper-btn" data-exo="${exo.id}" data-delta="-1">−</button>
           <div class="exo-val" id="val-${exo.id}">${current[exo.id] || 0}</div>
           <button class="stepper-btn" data-exo="${exo.id}" data-delta="1">+</button>
           <button class="band-btn${bandOn[exo.id] ? ' on' : ''}" data-exo="${exo.id}" title="Résistance de l'élastique">🎗️${bandOn[exo.id] ? bandOn[exo.id] : ''}</button>
+          <button class="bf-btn${formOn[exo.id] ? ' on' : ''}" data-exo="${exo.id}" title="Badform : série non validée">Badform</button>
           <button class="add-set-btn" data-exo="${exo.id}">✓</button>
         </div>`;
       wrap.appendChild(row);
@@ -657,11 +685,20 @@ function renderExoList() {
       openBandModal(btn.dataset.exo, 'log');
     });
   });
+  wrap.querySelectorAll('.bf-btn').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.exo;
+    formOn[id] = !formOn[id];
+    if (!formOn[id]) formCount[id] = false;
+    renderExoList();
+  }));
+  wrap.querySelectorAll('.bf-check').forEach(cb => cb.addEventListener('change', () => { formCount[cb.dataset.exo] = cb.checked; }));
   wrap.querySelectorAll('.add-set-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.exo;
       if (current[id] <= 0) return;
       pendingBands[id].push(bandOn[id] || false);
+      pendingForms[id].push(formOn[id] ? (formCount[id] ? 2 : 1) : 0);
+      formOn[id] = false; formCount[id] = false;
       pendingSets[id].push(current[id]);
       current[id] = 0;
       renderExoList();
@@ -674,6 +711,7 @@ function renderExoList() {
       const idx = parseInt(chip.dataset.idx, 10);
       pendingSets[id].splice(idx, 1);
       pendingBands[id].splice(idx, 1);
+      pendingForms[id].splice(idx, 1);
       renderExoList();
       updateSaveButton();
     });
@@ -683,7 +721,10 @@ function renderExoList() {
 function updateSaveButton() {
   const hasPending = Object.values(pendingSets).some(arr => arr.length > 0);
   const hasCurrent = Object.values(current).some(v => v > 0);
-  document.getElementById('save-session').disabled = !hasPending && !hasCurrent;
+  const btn = document.getElementById('save-session');
+  btn.disabled = !hasPending && !hasCurrent;
+  const n = Object.values(pendingSets).reduce((a, arr) => a + arr.length, 0) + Object.values(current).filter(v => v > 0).length;
+  btn.textContent = n ? `Enregistrer la séance (${n} série${n > 1 ? 's' : ''})` : 'Enregistrer la séance';
 }
 
 function renderFlame(n) {
@@ -850,15 +891,17 @@ function renderHistory() {
     const lines = EXERCISES.filter(e => (historyCat === 'all' || e.cat === historyCat) && setsArray(s.reps[e.id]).length).map(e => {
       const arr = setsArray(s.reps[e.id]);
       const bd = bandsArray(s, e.id);
-      const labels = arr.map((v, i) => v + (bd[i] ? bandTag(bd[i]) : ''));
-      const detail = arr.length > 1 ? `${labels.join(' · ')} ${e.unit} <span class="set-max">(max ${Math.max(...arr)})</span>` : `${labels[0]} ${e.unit}`;
+      const fm = formsArray(s, e.id);
+      const labels = arr.map((v, i) => v + (bd[i] ? bandTag(bd[i]) : '') + (fm[i] === 1 ? '🚫' : fm[i] === 2 ? '⚠️' : ''));
+      const counted = arr.filter((_, i) => setCounted(s, e.id, i));
+      const detail = arr.length > 1 ? `${labels.join(' · ')} ${e.unit}${counted.length ? ` <span class="set-max">(max ${Math.max(...counted)})</span>` : ''}` : `${labels[0]} ${e.unit}`;
       return `<div class="exo-line"><span>${e.name}</span><span>${detail}</span></div>`;
     }).join('');
     const card = document.createElement('div');
     card.className = 'card session-card' + (s.pinned ? ' pinned' : '');
     card.innerHTML = `
       <div class="session-card-header">
-        <div class="date">${s.pinned ? '📌 ' : ''}${s.date}</div>
+        <div class="date">${s.pinned ? '📌 ' : ''}${fmtDate(s.date)}</div>
         <div class="session-menu-wrap">
           <button class="session-menu-btn" data-date="${s.date}">⋯</button>
           <div class="session-menu" id="menu-${s.date}">
@@ -948,8 +991,8 @@ function openSessionEditModal(date) {
     const arr = setsArray(s.reps[e.id]);
     const bd = bandsArray(s, e.id);
     const row = document.createElement('div');
-    row.innerHTML = `<div class="field-label">${e.name} (${e.unit}, séries séparées par des virgules, « e » + kg pour l'élastique : 8, 6e15, 5e25)</div>
-      <input type="text" class="edit-input" data-exo="${e.id}" value="${arr.map((v, i) => v + (bd[i] ? 'e' + (bd[i] === true ? '' : bd[i]) : '')).join(', ')}">`;
+    row.innerHTML = `<div class="field-label">${e.name} (${e.unit}, séries séparées par des virgules. « e » + kg = élastique, « x » = badform non comptée, « x+ » = badform comptée. Ex : 8, 6e15, 5x, 4e15x+)</div>
+      <input type="text" class="edit-input" data-exo="${e.id}" value="${arr.map((v, i) => v + (bd[i] ? 'e' + (bd[i] === true ? '' : bd[i]) : '') + (formsArray(s, e.id)[i] === 1 ? 'x' : formsArray(s, e.id)[i] === 2 ? 'x+' : '')).join(', ')}">`;
     wrap.appendChild(row);
   });
   document.getElementById('session-edit-note').value = s.note || '';
@@ -962,14 +1005,17 @@ function saveSessionEdit() {
   if (!s) return;
   document.querySelectorAll('#session-edit-fields input').forEach(input => {
     const id = input.dataset.exo;
-    const toks = input.value.split(',').map(t => t.trim()).map(t => { const m = t.match(/^(\d+(?:[.,]\d+)?)\s*([eé*](?:\s*(\d+(?:[.,]\d+)?))?)?/i); if (!m) return { v: NaN, b: false }; return { v: parseFloat(m[1].replace(',', '.')), b: m[2] ? (m[3] ? parseFloat(m[3].replace(',', '.')) : true) : false }; }).filter(o => !isNaN(o.v) && o.v > 0);
+    const toks = input.value.split(',').map(t => t.trim()).map(t => { const m = t.match(/^(\d+(?:[.,]\d+)?)\s*([eé*](?:\s*(\d+(?:[.,]\d+)?))?)?\s*(x\+?)?/i); if (!m) return { v: NaN, b: false }; return { v: parseFloat(m[1].replace(',', '.')), b: m[2] ? (m[3] ? parseFloat(m[3].replace(',', '.')) : true) : false, f: m[4] ? (m[4].indexOf('+') >= 0 ? 2 : 1) : 0 }; }).filter(o => !isNaN(o.v) && o.v > 0);
     if (toks.length) {
       s.reps[id] = toks.map(o => o.v);
       if (!s.bands) s.bands = {};
       s.bands[id] = toks.map(o => o.b);
+      if (!s.forms) s.forms = {};
+      if (toks.some(o => o.f)) s.forms[id] = toks.map(o => o.f); else delete s.forms[id];
     } else {
       delete s.reps[id];
       if (s.bands) delete s.bands[id];
+      if (s.forms) delete s.forms[id];
     }
   });
   s.note = document.getElementById('session-edit-note').value.trim() || undefined;
@@ -1019,27 +1065,30 @@ function buildLineChartSVG(points, unit) {
 
 let progressionSearchQuery = '';
 
-// Score pondéré : ramène chaque série à un "équivalent sans élastique" (durée/reps × (1 - élastique/référence))
-const BAND_REF_KG = 50;
-function effScore(v, k) {
-  const kg = !k ? 0 : (k === true ? BAND_REF_KG / 2 : parseFloat(k));
-  return v * Math.max(0.05, 1 - kg / BAND_REF_KG);
+// Équivalences calibrées : 10 s à 10 kg ≈ 20 s à 20 kg ≈ 3 s à vide ; 10 reps à 10 kg ≈ 5 reps à vide
+const BAND_EQ = { sec: 3, reps: 5 };
+function effScore(v, k, unit) {
+  const kg = !k ? 0 : (k === true ? 15 : parseFloat(k));
+  const ref = BAND_EQ[unit] || 3;
+  return kg <= ref ? v : v * ref / kg;
 }
 function weightedChartHTML(exo, levels) {
   if (!levels.some(k => k !== '0')) return '';
   const points = [...state.sessions]
-    .filter(s => setsArray(s.reps[exo.id]).length)
+    .filter(s => maxAll(s, exo.id) > 0)
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(s => {
       const arr = setsArray(s.reps[exo.id]);
       const bd = bandsArray(s, exo.id);
-      const best = Math.max(...arr.map((v, i) => effScore(v, bd[i])));
+      const best = Math.max(...arr.map((v, i) => setCounted(s, exo.id, i) ? effScore(v, bd[i], exo.unit) : 0));
       return { date: s.date, value: Math.round(best * 10) / 10 };
     });
   if (!points.length) return '';
+  const u = exo.unit === 'sec' ? 's' : 'reps';
+  const ref = BAND_EQ[exo.unit] || 3;
   return `<div class="pr-title">⚖️ Progression pondérée (élastique pris en compte)</div>
     ${buildLineChartSVG(points, exo.unit)}
-    <div class="field-label">Équivalent sans élastique = ${exo.unit === 'sec' ? 'durée' : 'reps'} × (1 − élastique ÷ ${BAND_REF_KG} kg). Ex : 5 à 15 kg ≈ ${Math.round(effScore(5, 15) * 10) / 10}, 7 à 5 kg ≈ ${Math.round(effScore(7, 5) * 10) / 10}. La courbe monte quand tu tiens plus longtemps ou avec moins d'aide.</div>`;
+    <div class="field-label">Équivalent à vide = valeur × ${ref} ÷ élastique (kg). Ex : 10 ${u} à 10 kg ≈ ${Math.round(effScore(10, 10, exo.unit) * 10) / 10} ${u}, 20 ${u} à 20 kg ≈ ${Math.round(effScore(20, 20, exo.unit) * 10) / 10} ${u}. La courbe monte quand tu tiens plus longtemps ou avec moins d'aide.</div>`;
 }
 
 function renderProgression() {
@@ -1057,6 +1106,7 @@ function renderProgression() {
     const levels = levelsUsed(exo.id);
     let key = progLevel[exo.id];
     if (!levels.includes(key)) key = defaultLevel(exo.id);
+    if (!levels.includes(key)) key = levels[0];
     progLevel[exo.id] = key;
     const points = [...state.sessions]
       .filter(s => maxAtLevel(s, exo.id, key) > 0)
@@ -1086,7 +1136,7 @@ function goalProgress(exoId) {
     arr.forEach((v, i) => {
       const k = bd[i];
       const kg = !k ? 0 : (k === true ? Infinity : parseFloat(k));
-      if (kg <= limit && v > best) best = v;
+      if (kg <= limit && v > best && setCounted(s, exoId, i)) best = v;
     });
   });
   return best;
@@ -1222,17 +1272,20 @@ function showToast(msg) {
 let lastLocalWriteAt = 0;
 async function saveState() {
   try { localStorage.setItem('steady_state_v1', JSON.stringify(state)); } catch (e) {}
-  if (dbRef) {
+  if (dbRef && dbReady) {
     lastLocalWriteAt = Date.now();
-    try { await dbRef.doc(dbPath).set(state); }
-    catch (e) { console.error('db save failed', e); }
+    try { await dbRef.doc(dbPath).set(JSON.parse(JSON.stringify(state))); }
+    catch (e) {
+      console.error('db save failed', e);
+      showToast('⚠️ Sauvegarde en ligne échouée (' + ((e && e.code) || 'erreur') + ') : données gardées sur cet appareil');
+    }
   }
 }
 
 async function saveSession() {
  try {
   // toute valeur en cours de saisie mais pas encore "ajoutée" est comptée comme une série de plus
-  EXERCISES.forEach(e => { if (current[e.id] > 0) { pendingBands[e.id].push(bandOn[e.id] || false); pendingSets[e.id].push(current[e.id]); current[e.id] = 0; } });
+  EXERCISES.forEach(e => { if (current[e.id] > 0) { pendingBands[e.id].push(bandOn[e.id] || false); pendingForms[e.id].push(formOn[e.id] ? (formCount[e.id] ? 2 : 1) : 0); formOn[e.id] = false; formCount[e.id] = false; pendingSets[e.id].push(current[e.id]); current[e.id] = 0; } });
   const hasAny = Object.values(pendingSets).some(arr => arr.length > 0);
   if (!hasAny) { showToast('Ajoute au moins une série avant d\'enregistrer'); return; }
   const badgesBefore = BADGES.filter(b => b.check(state)).map(b => b.id);
@@ -1244,10 +1297,13 @@ async function saveSession() {
       if (pendingSets[e.id].length) {
         const ses = state.sessions[existingIdx];
         const existingBands = bandsArray(ses, e.id);
+        const existingForms = formsArray(ses, e.id);
         const existingArr = setsArray(ses.reps[e.id]);
         ses.reps[e.id] = existingArr.concat(pendingSets[e.id]);
         if (!ses.bands) ses.bands = {};
         ses.bands[e.id] = existingBands.concat(pendingBands[e.id]);
+        const mergedForms = existingForms.concat(pendingForms[e.id]);
+        if (mergedForms.some(Boolean)) { if (!ses.forms) ses.forms = {}; ses.forms[e.id] = mergedForms; }
       }
     });
     if (note) { const prevNote = state.sessions[existingIdx].note; state.sessions[existingIdx].note = prevNote ? prevNote + ' — ' + note : note; }
@@ -1256,10 +1312,12 @@ async function saveSession() {
     EXERCISES.forEach(e => { if (pendingSets[e.id].length) reps[e.id] = pendingSets[e.id].slice(); });
     const bands = {};
     EXERCISES.forEach(e => { if (pendingSets[e.id].length && pendingBands[e.id].some(Boolean)) bands[e.id] = pendingBands[e.id].slice(); });
-    state.sessions.push({ date, reps, bands, note: note || undefined, ts: Date.now() });
+    const forms = {};
+    EXERCISES.forEach(e => { if (pendingSets[e.id].length && pendingForms[e.id].some(Boolean)) forms[e.id] = pendingForms[e.id].slice(); });
+    state.sessions.push({ date, reps, bands, forms, note: note || undefined, ts: Date.now() });
   }
   await saveState();
-  EXERCISES.forEach(e => { current[e.id] = 0; pendingSets[e.id] = []; pendingBands[e.id] = []; bandOn[e.id] = false; });
+  EXERCISES.forEach(e => { current[e.id] = 0; pendingSets[e.id] = []; pendingBands[e.id] = []; pendingForms[e.id] = []; formOn[e.id] = false; formCount[e.id] = false; bandOn[e.id] = false; });
   document.getElementById('session-note').value = '';
   renderExoList();
   updateSaveButton();
@@ -1439,11 +1497,17 @@ document.getElementById('profile-name').addEventListener('change', (e) => {
   saveState();
 });
 
-document.getElementById('export-data').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+document.getElementById('export-data').addEventListener('click', async () => {
+  const json = JSON.stringify(state, null, 2);
+  const filename = `steady-sauvegarde-${todayStr()}.json`;
+  try {
+    const dl = window.claude && window.claude.use ? await window.claude.use('downloads') : null;
+    if (dl) { await dl.save({ filename, data: json }); showToast('💾 Sauvegarde prête'); return; }
+  } catch (e) { if (e && e.code === 'declined') return; }
+  const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.download = `steady-sauvegarde-${todayStr()}.json`;
+  link.download = filename;
   link.href = url;
   link.click();
   URL.revokeObjectURL(url);
@@ -1518,14 +1582,20 @@ renderAll();
             renderAll();
           }
         };
+        const localSessions = state.sessions.slice();
         const doc = await dbRef.doc(dbPath).get();
+        dbReady = true; // on n'écrit jamais en ligne avant d'avoir lu avec succès
         if (!(doc && doc.exists) && state.sessions.length) saveState();
         applyDoc(doc);
+        // séances présentes sur cet appareil mais absentes en ligne : on les garde
+        const missing = localSessions.filter(ls => !state.sessions.some(r => r.date === ls.date));
+        if (missing.length) { state.sessions = state.sessions.concat(missing); saveState(); renderExoList(); renderAll(); }
         dbRef.doc(dbPath).onSnapshot(applyDoc);
       }
     }
   } catch (e) {
     console.error('db init failed', e);
+    showToast('⚠️ Sauvegarde en ligne indisponible : tes données restent sur cet appareil');
   }
   maybeShowOnboarding();
 })();
