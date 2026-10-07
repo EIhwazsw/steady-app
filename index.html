@@ -349,7 +349,8 @@
   </section>
   <div class="backup-row">
     <button class="backup-btn" id="export-data">💾 Exporter mes données</button>
-    <span class="backup-btn import-wrap">📥 Importer<input type="file" id="import-file"></span>
+    <button class="backup-btn" id="copy-data">📋 Copier</button>
+    <button class="backup-btn" id="import-open">📥 Importer</button>
   </div>
   
   <footer class="legal">Steady © Eihwas_sw</footer>
@@ -415,11 +416,22 @@
 </div>
 
 <div class="modal-overlay" id="import-modal">
-  <div class="modal-box">
+  <div class="modal-box" style="max-height:88vh;overflow-y:auto">
     <h3>Importer la sauvegarde</h3>
-    <p class="field-label" id="import-msg"></p>
-    <button class="btn-primary" id="import-yes">Importer</button>
+    <p class="field-label" id="import-msg">Ouvre ton fichier de sauvegarde (.json), copie tout son contenu et colle-le ici.</p>
+    <textarea class="note-input" id="import-text" placeholder="Colle ici le contenu de la sauvegarde" style="min-height:120px"></textarea>
+    <button class="btn-secondary" id="import-paste" type="button">📋 Coller depuis le presse-papiers</button>
+    <button class="btn-primary" id="import-yes" style="margin-top:12px">Importer</button>
     <button class="btn-secondary" id="import-no">Annuler</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="copy-modal">
+  <div class="modal-box">
+    <h3>Copier mes données</h3>
+    <p class="field-label" id="copy-msg">Appuie longuement dans la zone, « Tout sélectionner », puis « Copier ».</p>
+    <textarea class="note-input" id="copy-text" readonly style="min-height:140px"></textarea>
+    <button class="btn-secondary" id="copy-close">Fermer</button>
   </div>
 </div>
 
@@ -1514,40 +1526,73 @@ document.getElementById('export-data').addEventListener('click', async () => {
   showToast('💾 Sauvegarde téléchargée');
 });
 let pendingImport = null;
-function proposeImport(text) {
-  try {
-    const incoming = JSON.parse(text);
-    if (!incoming || !Array.isArray(incoming.sessions)) throw new Error('format invalide');
-    pendingImport = incoming;
-    document.getElementById('import-msg').textContent = `Importer ${incoming.sessions.length} séance(s) ? Ça remplacera toutes tes données actuelles dans cette appli.`;
-    document.getElementById('import-modal').classList.add('show');
-  } catch (err) {
-    showToast('⚠️ Fichier invalide : ' + err.message);
-  }
-}
-document.getElementById('import-no').addEventListener('click', () => {
+function resetImportModal() {
   pendingImport = null;
+  document.getElementById('import-msg').textContent = 'Ouvre ton fichier de sauvegarde (.json), copie tout son contenu et colle-le ici.';
+  document.getElementById('import-yes').textContent = 'Importer';
+}
+document.getElementById('import-open').addEventListener('click', () => {
+  resetImportModal();
+  document.getElementById('import-text').value = '';
+  document.getElementById('import-modal').classList.add('show');
+});
+document.getElementById('import-text').addEventListener('input', resetImportModal);
+document.getElementById('import-no').addEventListener('click', () => {
+  resetImportModal();
   document.getElementById('import-modal').classList.remove('show');
 });
 document.getElementById('import-yes').addEventListener('click', () => {
-  if (!pendingImport) return;
+  if (!pendingImport) {
+    const text = document.getElementById('import-text').value.trim();
+    if (!text) { showToast('⚠️ Colle d\'abord le contenu de la sauvegarde'); return; }
+    try {
+      const a = text.indexOf('{'), b = text.lastIndexOf('}');
+      if (a < 0 || b <= a) throw new Error('aucune donnée trouvée');
+      let incoming = JSON.parse(text.slice(a, b + 1));
+      if (incoming && !Array.isArray(incoming.sessions) && incoming.state && Array.isArray(incoming.state.sessions)) incoming = incoming.state;
+      if (!incoming || !Array.isArray(incoming.sessions)) throw new Error('format invalide');
+      pendingImport = incoming;
+      document.getElementById('import-msg').textContent = `${incoming.sessions.length} séance(s) trouvée(s). Ça remplacera toutes tes données actuelles. Appuie à nouveau pour confirmer.`;
+      document.getElementById('import-yes').textContent = 'Confirmer l\'import';
+    } catch (err) {
+      showToast('⚠️ Contenu invalide : ' + err.message);
+    }
+    return;
+  }
+  try { localStorage.setItem('steady_backup_before_import', JSON.stringify(state)); } catch (e) {}
   state = Object.assign({ sessions: [], goals: {}, challenge: null, activeProgram: null, profileName: '', completedChallenges: 0 }, pendingImport);
-  pendingImport = null;
+  resetImportModal();
   document.getElementById('import-modal').classList.remove('show');
   saveState();
   renderExoList();
   renderAll();
   showToast('📥 Données importées');
 });
-document.getElementById('import-file').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  showToast('📄 Lecture de ' + file.name + '...');
-  const reader = new FileReader();
-  const input = e.target;
-  reader.onload = () => { proposeImport(reader.result); input.value = ''; };
-  reader.onerror = () => { showToast('⚠️ Impossible de lire le fichier'); input.value = ''; };
-  reader.readAsText(file);
+document.getElementById('import-paste').addEventListener('click', async () => {
+  const ta = document.getElementById('import-text');
+  try {
+    const t = await navigator.clipboard.readText();
+    if (t && t.trim()) { ta.value = t; resetImportModal(); showToast('📋 Contenu collé, appuie sur Importer'); return; }
+    showToast('⚠️ Presse-papiers vide');
+  } catch (e) {
+    ta.focus();
+    showToast('Appuie longuement dans la zone puis choisis « Coller »');
+  }
+});
+document.getElementById('copy-data').addEventListener('click', async () => {
+  const json = JSON.stringify(state, null, 2);
+  try {
+    await navigator.clipboard.writeText(json);
+    showToast('📋 Données copiées');
+    return;
+  } catch (e) {}
+  const ta = document.getElementById('copy-text');
+  ta.value = json;
+  document.getElementById('copy-modal').classList.add('show');
+  ta.focus(); ta.select();
+});
+document.getElementById('copy-close').addEventListener('click', () => {
+  document.getElementById('copy-modal').classList.remove('show');
 });
 
 try {
