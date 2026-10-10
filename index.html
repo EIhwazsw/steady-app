@@ -296,7 +296,6 @@
       <div class="stat"><div class="num" id="stat-badges">0</div><div class="label">badges</div></div>
     </div>
     <div class="reminder-banner" id="reminder-banner" style="display:none;"></div>
-    <div class="reminder-banner" id="backup-banner" style="display:none;cursor:pointer;"></div>
     <div class="challenge-banner" id="challenge-banner"></div>
   </header>
 
@@ -352,10 +351,10 @@
   </section>
   <div class="backup-row">
     <button class="backup-btn" id="export-data">💾 Exporter mes données</button>
-    <button class="backup-btn" id="copy-data">📋 Copier</button>
     <button class="backup-btn" id="import-open">📥 Importer</button>
   </div>
   <div class="sync-box" id="sync-box">
+    <div id="conflict-box" style="display:none"></div>
     <div class="sync-status" id="sync-status">☁️ Synchro entre appareils : désactivée</div>
     <input class="profile-input" id="sync-code" type="text" autocomplete="off" autocapitalize="off" placeholder="Ton code secret (8 caractères minimum)" maxlength="64">
     <button class="btn-secondary" id="sync-btn" type="button">Activer la synchro</button>
@@ -447,15 +446,6 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="copy-modal">
-  <div class="modal-box">
-    <h3>Copier mes données</h3>
-    <p class="field-label" id="copy-msg">Appuie longuement dans la zone, « Tout sélectionner », puis « Copier ».</p>
-    <textarea class="note-input" id="copy-text" readonly style="min-height:140px"></textarea>
-    <button class="btn-secondary" id="copy-close">Fermer</button>
-  </div>
-</div>
-
 <div class="toast" id="toast"></div>
 
 <script>
@@ -529,9 +519,6 @@ const BADGES = [
 let state = { sessions: [], goals: {}, challenge: null, activeProgram: null, profileName: '', completedChallenges: 0 };
 let current = {};
 EXERCISES.forEach(e => current[e.id] = 0);
-let dbRef = null;
-let dbPath = null;
-let dbReady = false;
 
 function normalize(str) {
   return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -879,20 +866,6 @@ function renderReminderBanner() {
 // demande au navigateur de ne pas effacer les données de l'appli quand il manque de place
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 
-function renderBackupBanner() {
-  const el = document.getElementById('backup-banner');
-  if (!el) return;
-  const last = state.lastBackup ? new Date(state.lastBackup).getTime() : 0;
-  const stale = !last || (Date.now() - last) > 7 * 24 * 3600 * 1000;
-  if (false && state.sessions.length >= 3 && stale) { // bandeau désactivé
-    el.style.display = 'block';
-    el.innerHTML = '<b>💾 Pense à sauvegarder</b>Appuie ici pour copier tes données et les garder en sécurité.';
-  } else {
-    el.style.display = 'none';
-  }
-}
-function markBackup() { state.lastBackup = new Date().toISOString(); saveState(); renderBackupBanner(); }
-document.getElementById('backup-banner').addEventListener('click', () => document.getElementById('copy-data').click());
 document.getElementById('save-session').addEventListener('click', () => { try { navigator.vibrate && navigator.vibrate(30); } catch (e) {} });
 
 function renderChallengeBanner() {
@@ -1306,7 +1279,6 @@ function renderBadges() {
 function renderAll() {
   renderStats();
   renderReminderBanner();
-  renderBackupBanner();
   renderChallengeBanner();
   renderHistory();
   renderProgression();
@@ -1323,19 +1295,10 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-let lastLocalWriteAt = 0;
 async function saveState() {
   state.updatedAt = Date.now();
   try { localStorage.setItem('steady_state_v1', JSON.stringify(state)); } catch (e) {}
   syncPush();
-  if (dbRef && dbReady) {
-    lastLocalWriteAt = Date.now();
-    try { await dbRef.doc(dbPath).set(JSON.parse(JSON.stringify(state))); }
-    catch (e) {
-      console.error('db save failed', e);
-      showToast('⚠️ Sauvegarde en ligne échouée (' + ((e && e.code) || 'erreur') + ') : données gardées sur cet appareil');
-    }
-  }
 }
 
 async function saveSession() {
@@ -1559,7 +1522,7 @@ document.getElementById('export-data').addEventListener('click', async () => {
   const filename = `steady-sauvegarde-${todayStr()}.json`;
   try {
     const dl = window.claude && window.claude.use ? await window.claude.use('downloads') : null;
-    if (dl) { await dl.save({ filename, data: json }); markBackup(); showToast('💾 Sauvegarde prête'); return; }
+    if (dl) { await dl.save({ filename, data: json }); showToast('💾 Sauvegarde prête'); return; }
   } catch (e) { if (e && e.code === 'declined') return; }
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1568,7 +1531,6 @@ document.getElementById('export-data').addEventListener('click', async () => {
   link.href = url;
   link.click();
   URL.revokeObjectURL(url);
-  markBackup();
   showToast('💾 Sauvegarde téléchargée');
 });
 let pendingImport = null;
@@ -1633,23 +1595,6 @@ const COACHING_URL = 'https://www.instagram.com/eihwaz_sw/';
   if (COACHING_URL) { a.href = COACHING_URL; }
   else { a.addEventListener('click', (e) => { e.preventDefault(); showToast('Le coaching ouvre très bientôt 💪'); }); }
 })();
-document.getElementById('copy-data').addEventListener('click', async () => {
-  const json = JSON.stringify(state, null, 2);
-  try {
-    await navigator.clipboard.writeText(json);
-    markBackup();
-    showToast('📋 Données copiées');
-    return;
-  } catch (e) {}
-  const ta = document.getElementById('copy-text');
-  ta.value = json;
-  markBackup();
-  document.getElementById('copy-modal').classList.add('show');
-  ta.focus(); ta.select();
-});
-document.getElementById('copy-close').addEventListener('click', () => {
-  document.getElementById('copy-modal').classList.remove('show');
-});
 
 try {
   const rawSaved = localStorage.getItem('steady_state_v1');
@@ -1688,18 +1633,69 @@ function setSyncStatus(on, err) {
 function stable(o) {
   return JSON.stringify(o, (k, v) => (v && typeof v === 'object' && !Array.isArray(v)) ? Object.keys(v).sort().reduce((r, x) => (r[x] = v[x], r), {}) : v);
 }
+function normKey(x) {
+  const c = {};
+  Object.keys(x.reps || {}).sort().forEach(id => { const n = setsArray(x.reps[id]); if (n.length) c[id] = [n, bandsArray(x, id), formsArray(x, id)]; });
+  return stable(c);
+}
+function setCount(x) { return Object.keys(x.reps || {}).reduce((t, id) => t + setsArray(x.reps[id]).length, 0); }
+function ckey(c) { return c.date + '|' + normKey(c); }
 function mergeStates(a, b) {
   const ea = a.epoch || 0, eb = b.epoch || 0;
   if (ea !== eb) return JSON.parse(JSON.stringify(ea > eb ? a : b));
   const newer = (b.updatedAt || 0) > (a.updatedAt || 0) ? b : a, older = newer === a ? b : a;
-  const out = Object.assign({}, older, newer), map = {}, del = {};
+  const out = Object.assign({}, older, newer), map = {}, del = {}, conf = {};
+  const done = Object.assign({}, a.conflictsDone || {}, b.conflictsDone || {});
   [a.deleted || {}, b.deleted || {}].forEach(d => Object.keys(d).forEach(k => { del[k] = Math.max(del[k] || 0, d[k]); }));
-  [older, newer].forEach(st => (st.sessions || []).forEach(x => { const p = map[x.date]; if (!p || JSON.stringify(x).length >= JSON.stringify(p).length) map[x.date] = x; }));
+  (a.conflicts || []).concat(b.conflicts || []).forEach(c => { conf[ckey(c)] = c; });
+  [older, newer].forEach(st => (st.sessions || []).forEach(x => {
+    const p = map[x.date];
+    if (!p) { map[x.date] = x; return; }
+    if (normKey(p) === normKey(x)) { if ((x.ts || 0) >= (p.ts || 0)) map[x.date] = x; return; } // doublon exact : un seul exemplaire gardé
+    let keep = x, drop = p;
+    if (setCount(p) > setCount(x) || (setCount(p) === setCount(x) && (p.ts || 0) > (x.ts || 0))) { keep = p; drop = x; }
+    map[x.date] = keep; conf[ckey(drop)] = drop; // version différente : jamais perdue, mise de côté
+  }));
   Object.keys(del).forEach(d => { if (map[d]) delete map[d]; });
   out.sessions = Object.values(map).sort((x, y) => (x.date < y.date ? -1 : 1));
   out.deleted = del;
+  out.conflictsDone = done;
+  out.conflicts = Object.keys(conf).filter(k => !done[k] && map[conf[k].date] && normKey(map[conf[k].date]) !== normKey(conf[k])).map(k => conf[k]);
   return out;
 }
+function renderConflicts() {
+  const box = document.getElementById('conflict-box');
+  if (!box) return;
+  const list = state.conflicts || [];
+  box.style.display = list.length ? '' : 'none';
+  box.innerHTML = list.map(c => {
+    const d = c.date.slice(8, 10) + '/' + c.date.slice(5, 7);
+    return '<div class="sync-status" style="text-align:left;border:1px solid var(--concrete);border-radius:10px;padding:10px;margin-bottom:8px">⚠️ Séance du ' + d + ' : une autre version (' + setCount(c) + ' séries) a été mise de côté à la fusion.' +
+      '<div style="display:flex;gap:8px;margin-top:8px"><button class="btn-secondary" data-act="add" data-key="' + ckey(c).replace(/"/g, '&quot;') + '">Ajouter à la séance</button><button class="btn-secondary" data-act="skip" data-key="' + ckey(c).replace(/"/g, '&quot;') + '">Ignorer</button></div></div>';
+  }).join('');
+}
+document.getElementById('conflict-box').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button[data-act]'); if (!btn) return;
+  const c = (state.conflicts || []).find(x => ckey(x) === btn.dataset.key); if (!c) return;
+  if (btn.dataset.act === 'add') {
+    const ses = state.sessions.find(x => x.date === c.date);
+    if (!ses) { state.sessions.push(JSON.parse(JSON.stringify(c))); state.sessions.sort((x, y) => (x.date < y.date ? -1 : 1)); }
+    else {
+      if (!ses.bands) ses.bands = {};
+      Object.keys(c.reps || {}).forEach(id => {
+        const eb = bandsArray(ses, id), ef = formsArray(ses, id);
+        ses.reps[id] = setsArray(ses.reps[id]).concat(setsArray(c.reps[id]));
+        ses.bands[id] = eb.concat(bandsArray(c, id));
+        const mf = ef.concat(formsArray(c, id));
+        if (mf.some(Boolean)) { if (!ses.forms) ses.forms = {}; ses.forms[id] = mf; }
+      });
+    }
+  }
+  state.conflictsDone = state.conflictsDone || {}; state.conflictsDone[btn.dataset.key] = 1;
+  state.conflicts = (state.conflicts || []).filter(x => ckey(x) !== btn.dataset.key);
+  saveState(); renderExoList(); renderAll(); renderConflicts();
+  showToast(btn.dataset.act === 'add' ? '✅ Séries ajoutées à la séance' : 'Version ignorée');
+});
 function applyRemote(next) {
   try {
     const prev = JSON.parse(localStorage.getItem('steady_backup_before_sync') || 'null');
@@ -1781,6 +1777,7 @@ function bestBackup() {
   return best;
 }
 function checkRestore() {
+  renderConflicts();
   const btn = document.getElementById('restore-btn');
   if (!btn) return;
   const b = bestBackup();
@@ -1830,43 +1827,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) sync
   if (syncId) { setSyncStatus(true); syncPull(); }
 })();
 
-(async function init() {
-  try {
-    if (window.claude && window.claude.use) {
-      const userCap = await window.claude.use('user');
-      const uid = userCap ? await userCap.id() : null;
-      dbRef = uid ? await window.claude.use('db') : null;
-      if (uid) dbPath = 'data/users/' + uid + '/tracker';
-      if (dbRef) {
-        const applyDoc = (doc) => {
-          if (doc && doc.exists) {
-            const raw = doc.data();
-            const cloned = raw ? JSON.parse(JSON.stringify(raw)) : {};
-            state = Object.assign({ sessions: [], goals: {}, challenge: null, activeProgram: null, profileName: '', completedChallenges: 0 }, cloned);
-            if (!Array.isArray(state.sessions)) state.sessions = [];
-            if (!state.goals) state.goals = {};
-            if (Date.now() - lastLocalWriteAt < 2000) { return; }
-            renderExoList();
-            renderAll();
-          }
-        };
-        const localSessions = state.sessions.slice();
-        const doc = await dbRef.doc(dbPath).get();
-        dbReady = true; // on n'écrit jamais en ligne avant d'avoir lu avec succès
-        if (!(doc && doc.exists) && state.sessions.length) saveState();
-        applyDoc(doc);
-        // séances présentes sur cet appareil mais absentes en ligne : on les garde
-        const missing = localSessions.filter(ls => !state.sessions.some(r => r.date === ls.date));
-        if (missing.length) { state.sessions = state.sessions.concat(missing); saveState(); renderExoList(); renderAll(); }
-        dbRef.doc(dbPath).onSnapshot(applyDoc);
-      }
-    }
-  } catch (e) {
-    console.error('db init failed', e);
-    showToast('⚠️ Sauvegarde en ligne indisponible : tes données restent sur cet appareil');
-  }
-  maybeShowOnboarding();
-})();
+maybeShowOnboarding();
 </script>
 </body>
 </html>
