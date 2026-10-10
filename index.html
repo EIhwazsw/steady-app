@@ -123,6 +123,8 @@
   .btn-primary { width: 100%; background: linear-gradient(135deg, var(--signal), #D6A52E); color: #1B1A18; border: none; border-radius: var(--border-radius); padding: 14px; font-family: 'Inter', sans-serif; font-weight: 700; font-size: 15px; cursor: pointer; margin-top: 4px; box-shadow: 0 6px 16px rgba(232,185,58,0.25); transition: transform 0.15s ease, box-shadow 0.15s ease; }
   .btn-primary:disabled { background: var(--signal-dim); color: var(--chalk-dim); cursor: default; box-shadow: none; }
   .btn-primary:active:not(:disabled) { transform: scale(0.98); box-shadow: 0 3px 10px rgba(232,185,58,0.2); }
+  .sync-box { margin: 16px 0 4px; display: flex; flex-direction: column; gap: 10px; }
+  .sync-status { font-size: 12px; opacity: .75; text-align: center; }
   .btn-secondary { width: 100%; background: none; color: var(--chalk); border: 1px solid var(--concrete); border-radius: var(--border-radius); padding: 11px; font-weight: 600; font-size: 13px; cursor: pointer; margin-top: 8px; }
 
   .empty { color: var(--chalk-dim); font-size: 14px; text-align: center; padding: 30px 10px; }
@@ -294,6 +296,7 @@
       <div class="stat"><div class="num" id="stat-badges">0</div><div class="label">badges</div></div>
     </div>
     <div class="reminder-banner" id="reminder-banner" style="display:none;"></div>
+    <div class="reminder-banner" id="backup-banner" style="display:none;cursor:pointer;"></div>
     <div class="challenge-banner" id="challenge-banner"></div>
   </header>
 
@@ -339,7 +342,7 @@
     <div class="card coaching-card">
       <h3>Envie d'aller plus loin ?</h3>
       <p>Pour les figures encore plus avancées et un accompagnement personnalisé, direction mon coaching.</p>
-      <a href="#" class="coaching-link">Découvrir mon coaching — à partir de XX€</a>
+      <a href="#" class="coaching-link" id="coaching-link" target="_blank" rel="noopener noreferrer">Découvrir le coaching</a>
     </div>
     <p class="trust-note">🛡️ Je ne conseille que sur ce que j'ai moi-même débloqué. Tant qu'une figure n'est pas encore maîtrisée de mon côté, la case reste "à venir" — pas de blabla.</p>
   </section>
@@ -352,8 +355,13 @@
     <button class="backup-btn" id="copy-data">📋 Copier</button>
     <button class="backup-btn" id="import-open">📥 Importer</button>
   </div>
+  <div class="sync-box" id="sync-box">
+    <div class="sync-status" id="sync-status">☁️ Synchro entre appareils : désactivée</div>
+    <input class="profile-input" id="sync-code" type="text" autocomplete="off" autocapitalize="off" placeholder="Ton code secret (8 caractères minimum)" maxlength="64">
+    <button class="btn-secondary" id="sync-btn" type="button">Activer la synchro</button>
+  </div>
   
-  <footer class="legal">Steady © Eihwas_sw</footer>
+  <footer class="legal">Steady © Eihwaz_sw</footer>
 </div>
 
 <div class="modal-overlay" id="share-modal">
@@ -855,6 +863,25 @@ function renderReminderBanner() {
   }
 }
 
+// demande au navigateur de ne pas effacer les données de l'appli quand il manque de place
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
+function renderBackupBanner() {
+  const el = document.getElementById('backup-banner');
+  if (!el) return;
+  const last = state.lastBackup ? new Date(state.lastBackup).getTime() : 0;
+  const stale = !last || (Date.now() - last) > 7 * 24 * 3600 * 1000;
+  if (false && state.sessions.length >= 3 && stale) { // bandeau désactivé
+    el.style.display = 'block';
+    el.innerHTML = '<b>💾 Pense à sauvegarder</b>Appuie ici pour copier tes données et les garder en sécurité.';
+  } else {
+    el.style.display = 'none';
+  }
+}
+function markBackup() { state.lastBackup = new Date().toISOString(); saveState(); renderBackupBanner(); }
+document.getElementById('backup-banner').addEventListener('click', () => document.getElementById('copy-data').click());
+document.getElementById('save-session').addEventListener('click', () => { try { navigator.vibrate && navigator.vibrate(30); } catch (e) {} });
+
 function renderChallengeBanner() {
   const el = document.getElementById('challenge-banner');
   if (!state.challenge) {
@@ -1265,6 +1292,7 @@ function renderBadges() {
 function renderAll() {
   renderStats();
   renderReminderBanner();
+  renderBackupBanner();
   renderChallengeBanner();
   renderHistory();
   renderProgression();
@@ -1283,7 +1311,9 @@ function showToast(msg) {
 
 let lastLocalWriteAt = 0;
 async function saveState() {
+  state.updatedAt = Date.now();
   try { localStorage.setItem('steady_state_v1', JSON.stringify(state)); } catch (e) {}
+  syncPush();
   if (dbRef && dbReady) {
     lastLocalWriteAt = Date.now();
     try { await dbRef.doc(dbPath).set(JSON.parse(JSON.stringify(state))); }
@@ -1421,7 +1451,7 @@ async function drawShareCard() {
   drawEihwazRune(ctx, 62, H - 44, 34, '#E8B93A');
   ctx.fillStyle = '#F2EFE9';
   ctx.font = '800 18px Sora, sans-serif';
-  ctx.fillText('@Eihwas_sw', 86, H - 39);
+  ctx.fillText('@Eihwaz_sw', 86, H - 39);
 }
 
 function drawEihwazRune(ctx, cx, cy, h, color) {
@@ -1514,7 +1544,7 @@ document.getElementById('export-data').addEventListener('click', async () => {
   const filename = `steady-sauvegarde-${todayStr()}.json`;
   try {
     const dl = window.claude && window.claude.use ? await window.claude.use('downloads') : null;
-    if (dl) { await dl.save({ filename, data: json }); showToast('💾 Sauvegarde prête'); return; }
+    if (dl) { await dl.save({ filename, data: json }); markBackup(); showToast('💾 Sauvegarde prête'); return; }
   } catch (e) { if (e && e.code === 'declined') return; }
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1523,6 +1553,7 @@ document.getElementById('export-data').addEventListener('click', async () => {
   link.href = url;
   link.click();
   URL.revokeObjectURL(url);
+  markBackup();
   showToast('💾 Sauvegarde téléchargée');
 });
 let pendingImport = null;
@@ -1579,15 +1610,25 @@ document.getElementById('import-paste').addEventListener('click', async () => {
     showToast('Appuie longuement dans la zone puis choisis « Coller »');
   }
 });
+// Lien du coaching : renseigne l'adresse ici (ex. 'https://instagram.com/tonpseudo'). Vide = message "bientôt".
+const COACHING_URL = 'https://www.instagram.com/eihwaz_sw/';
+(function () {
+  const a = document.getElementById('coaching-link');
+  if (!a) return;
+  if (COACHING_URL) { a.href = COACHING_URL; }
+  else { a.addEventListener('click', (e) => { e.preventDefault(); showToast('Le coaching ouvre très bientôt 💪'); }); }
+})();
 document.getElementById('copy-data').addEventListener('click', async () => {
   const json = JSON.stringify(state, null, 2);
   try {
     await navigator.clipboard.writeText(json);
+    markBackup();
     showToast('📋 Données copiées');
     return;
   } catch (e) {}
   const ta = document.getElementById('copy-text');
   ta.value = json;
+  markBackup();
   document.getElementById('copy-modal').classList.add('show');
   ta.focus(); ta.select();
 });
@@ -1606,6 +1647,90 @@ try {
 
 renderExoList();
 renderAll();
+
+// ===== Synchro entre appareils (Supabase) =====
+const SB_URL = 'https://bujpjhwscueiroektkga.supabase.co';
+const SB_KEY = 'sb_publishable_gLl1pTPR6YfvPSORD5oVpg_0jkgQzwo';
+let syncId = null, syncReady = false, pushTimer = null, pulling = false;
+async function sha256(t) {
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t));
+  return Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join('');
+}
+async function sbRpc(fn, body) {
+  const r = await fetch(SB_URL + '/rest/v1/rpc/' + fn, { method: 'POST', headers: { 'apikey': SB_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const t = await r.text();
+  return t ? JSON.parse(t) : null;
+}
+function setSyncStatus(on, err) {
+  const st = document.getElementById('sync-status'), inp = document.getElementById('sync-code'), btn = document.getElementById('sync-btn');
+  if (!st) return;
+  st.textContent = on ? (err ? '⚠️ Synchro activée, connexion impossible pour le moment' : '✅ Synchro activée : tes séances se retrouvent sur tous tes appareils') : '☁️ Synchro entre appareils : désactivée';
+  inp.style.display = on ? 'none' : '';
+  btn.textContent = on ? 'Désactiver la synchro' : 'Activer la synchro';
+}
+function mergeStates(a, b) {
+  const newer = (b.updatedAt || 0) > (a.updatedAt || 0) ? b : a, older = newer === a ? b : a;
+  const out = Object.assign({}, older, newer), map = {};
+  [older, newer].forEach(st => (st.sessions || []).forEach(x => { const p = map[x.date]; if (!p || JSON.stringify(x).length >= JSON.stringify(p).length) map[x.date] = x; }));
+  out.sessions = Object.values(map).sort((x, y) => (x.date < y.date ? -1 : 1));
+  return out;
+}
+function applyRemote(next) {
+  try { localStorage.setItem('steady_backup_before_sync', JSON.stringify(state)); } catch (e) {}
+  state = Object.assign({ sessions: [], goals: {}, challenge: null, activeProgram: null, profileName: '', completedChallenges: 0 }, next);
+  if (!Array.isArray(state.sessions)) state.sessions = [];
+  if (!state.goals) state.goals = {};
+  try { localStorage.setItem('steady_state_v1', JSON.stringify(state)); } catch (e) {}
+  renderExoList(); renderAll();
+}
+async function syncPull(first) {
+  if (!syncId || pulling) return;
+  pulling = true;
+  try {
+    const remote = await sbRpc('steady_get', { p_code: syncId });
+    syncReady = true;
+    const hasRemote = remote && Array.isArray(remote.sessions);
+    if (hasRemote && first) { applyRemote(mergeStates(state, remote)); saveState(); }
+    else if (hasRemote && (remote.updatedAt || 0) > (state.updatedAt || 0)) { applyRemote(remote); }
+    else if (!hasRemote || (state.updatedAt || 0) > (remote.updatedAt || 0)) { if (state.sessions.length || first) syncPush(); }
+    setSyncStatus(true);
+    if (first) showToast('☁️ Synchro activée');
+  } catch (e) {
+    console.error('sync pull failed', e);
+    setSyncStatus(true, true);
+    showToast('⚠️ Synchro impossible pour le moment');
+  } finally { pulling = false; }
+}
+function syncPush() {
+  if (!syncId || !syncReady) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(async () => {
+    try { await sbRpc('steady_set', { p_code: syncId, p_data: JSON.parse(JSON.stringify(state)) }); setSyncStatus(true); }
+    catch (e) { console.error('sync push failed', e); setSyncStatus(true, true); showToast('⚠️ Synchro échouée, données gardées sur cet appareil'); }
+  }, 600);
+}
+document.getElementById('sync-btn').addEventListener('click', async () => {
+  if (syncId) {
+    syncId = null; syncReady = false;
+    try { localStorage.removeItem('steady_sync_id'); } catch (e) {}
+    setSyncStatus(false); showToast('Synchro désactivée');
+    return;
+  }
+  const code = document.getElementById('sync-code').value.trim();
+  if (code.length < 8) { showToast('Code trop court : 8 caractères minimum'); return; }
+  if (!(window.crypto && crypto.subtle)) { showToast('Navigateur non compatible'); return; }
+  syncId = await sha256('steady:' + code.toLowerCase());
+  try { localStorage.setItem('steady_sync_id', syncId); } catch (e) {}
+  document.getElementById('sync-code').value = '';
+  setSyncStatus(true);
+  await syncPull(true);
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncPull(); });
+(function startSync() {
+  try { syncId = localStorage.getItem('steady_sync_id') || null; } catch (e) {}
+  if (syncId) { setSyncStatus(true); syncPull(); }
+})();
 
 (async function init() {
   try {
