@@ -359,6 +359,7 @@
     <div class="sync-status" id="sync-status">☁️ Synchro entre appareils : désactivée</div>
     <input class="profile-input" id="sync-code" type="text" autocomplete="off" autocapitalize="off" placeholder="Ton code secret (8 caractères minimum)" maxlength="64">
     <button class="btn-secondary" id="sync-btn" type="button">Activer la synchro</button>
+    <button class="btn-secondary" id="restore-btn" type="button" style="display:none"></button>
   </div>
   
   <footer class="legal">Steady © Eihwaz_sw</footer>
@@ -991,6 +992,7 @@ function wrap_session_menus(listEl) {
           clearTimeout(pendingDeleteTimeout);
           pendingDeleteDate = null;
           state.sessions = state.sessions.filter(s => s.date !== date);
+          state.deleted = state.deleted || {}; state.deleted[date] = Date.now();
           saveState();
           renderAll();
           showToast('Séance supprimée 🗑️');
@@ -1357,6 +1359,7 @@ async function saveSession() {
     const forms = {};
     EXERCISES.forEach(e => { if (pendingSets[e.id].length && pendingForms[e.id].some(Boolean)) forms[e.id] = pendingForms[e.id].slice(); });
     state.sessions.push({ date, reps, bands, forms, note: note || undefined, ts: Date.now() });
+    if (state.deleted) delete state.deleted[date];
   }
   await saveState();
   EXERCISES.forEach(e => { current[e.id] = 0; pendingSets[e.id] = []; pendingBands[e.id] = []; pendingForms[e.id] = []; formOn[e.id] = false; formCount[e.id] = false; bandOn[e.id] = false; });
@@ -1669,15 +1672,24 @@ function setSyncStatus(on, err) {
   inp.style.display = on ? 'none' : '';
   btn.textContent = on ? 'Désactiver la synchro' : 'Activer la synchro';
 }
+function stable(o) {
+  return JSON.stringify(o, (k, v) => (v && typeof v === 'object' && !Array.isArray(v)) ? Object.keys(v).sort().reduce((r, x) => (r[x] = v[x], r), {}) : v);
+}
 function mergeStates(a, b) {
   const newer = (b.updatedAt || 0) > (a.updatedAt || 0) ? b : a, older = newer === a ? b : a;
-  const out = Object.assign({}, older, newer), map = {};
+  const out = Object.assign({}, older, newer), map = {}, del = {};
+  [a.deleted || {}, b.deleted || {}].forEach(d => Object.keys(d).forEach(k => { del[k] = Math.max(del[k] || 0, d[k]); }));
   [older, newer].forEach(st => (st.sessions || []).forEach(x => { const p = map[x.date]; if (!p || JSON.stringify(x).length >= JSON.stringify(p).length) map[x.date] = x; }));
+  Object.keys(del).forEach(d => { if (map[d]) delete map[d]; });
   out.sessions = Object.values(map).sort((x, y) => (x.date < y.date ? -1 : 1));
+  out.deleted = del;
   return out;
 }
 function applyRemote(next) {
-  try { localStorage.setItem('steady_backup_before_sync', JSON.stringify(state)); } catch (e) {}
+  try {
+    const prev = JSON.parse(localStorage.getItem('steady_backup_before_sync') || 'null');
+    if (!prev || !Array.isArray(prev.sessions) || state.sessions.length >= prev.sessions.length) localStorage.setItem('steady_backup_before_sync', JSON.stringify(state));
+  } catch (e) {}
   state = Object.assign({ sessions: [], goals: {}, challenge: null, activeProgram: null, profileName: '', completedChallenges: 0 }, next);
   if (!Array.isArray(state.sessions)) state.sessions = [];
   if (!state.goals) state.goals = {};
@@ -1691,17 +1703,43 @@ async function syncPull(first) {
     const remote = await sbRpc('steady_get', { p_code: syncId });
     syncReady = true;
     const hasRemote = remote && Array.isArray(remote.sessions);
-    if (hasRemote && first) { applyRemote(mergeStates(state, remote)); saveState(); }
-    else if (hasRemote && (remote.updatedAt || 0) > (state.updatedAt || 0)) { applyRemote(remote); }
-    else if (!hasRemote || (state.updatedAt || 0) > (remote.updatedAt || 0)) { if (state.sessions.length || first) syncPush(); }
+    if (hasRemote) {
+      const merged = mergeStates(state, remote);
+      if (stable(merged) !== stable(state)) applyRemote(merged);
+      if (stable(merged) !== stable(remote)) saveState();
+    } else if (state.sessions.length) { saveState(); }
     setSyncStatus(true);
     if (first) showToast('☁️ Synchro activée');
   } catch (e) {
     console.error('sync pull failed', e);
     setSyncStatus(true, true);
     showToast('⚠️ Synchro impossible pour le moment');
-  } finally { pulling = false; }
+  } finally { pulling = false; checkRestore(); }
 }
+function bestBackup() {
+  let best = null;
+  ['steady_backup_before_sync', 'steady_backup_before_import'].forEach(k => {
+    try { const b = JSON.parse(localStorage.getItem(k) || 'null'); if (b && Array.isArray(b.sessions) && (!best || b.sessions.length > best.sessions.length)) best = b; } catch (e) {}
+  });
+  return best;
+}
+function checkRestore() {
+  const btn = document.getElementById('restore-btn');
+  if (!btn) return;
+  const b = bestBackup();
+  const have = new Set(state.sessions.map(x => x.date));
+  const missing = b ? b.sessions.filter(x => !have.has(x.date)) : [];
+  if (missing.length) { btn.style.display = ''; btn.textContent = '↩️ Récupérer ' + missing.length + ' séance' + (missing.length > 1 ? 's' : '') + ' de la sauvegarde de secours'; }
+  else btn.style.display = 'none';
+}
+document.getElementById('restore-btn').addEventListener('click', () => {
+  const b = bestBackup(); if (!b) return;
+  const have = new Set(state.sessions.map(x => x.date));
+  b.sessions.forEach(x => { if (!have.has(x.date)) { state.sessions.push(x); if (state.deleted) delete state.deleted[x.date]; } });
+  state.sessions.sort((x, y) => (x.date < y.date ? -1 : 1));
+  saveState(); renderExoList(); renderAll(); checkRestore();
+  showToast('↩️ Séances récupérées');
+});
 function syncPush() {
   if (!syncId || !syncReady) return;
   clearTimeout(pushTimer);
@@ -1729,6 +1767,7 @@ document.getElementById('sync-btn').addEventListener('click', async () => {
 document.addEventListener('visibilitychange', () => { if (!document.hidden) syncPull(); });
 (function startSync() {
   try { syncId = localStorage.getItem('steady_sync_id') || null; } catch (e) {}
+  checkRestore();
   if (syncId) { setSyncStatus(true); syncPull(); }
 })();
 
